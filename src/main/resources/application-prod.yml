@@ -1,0 +1,13 @@
+parknova:
+  keycloak:
+    base-url: ${KEYCLOAK_BASE_URL:https://keycloak.eden-tech.io}
+    realm: ${KEYCLOAK_REALM:parknova}
+    client-id: ${KEYCLOAK_CLIENT_ID:parknova-api-gateway}
+    client-secret: ${KEYCLOAK_CLIENT_SECRET}
+    jwt-decoder-enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.parknova.parknovaapigateway: INFO
+    org.springframework.security: WARN

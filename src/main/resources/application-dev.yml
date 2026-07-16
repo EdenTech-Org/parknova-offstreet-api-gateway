@@ -1,0 +1,29 @@
+parknova:
+  keycloak:
+    base-url: ${KEYCLOAK_BASE_URL:https://keycloak-dev.eden-tech.io}
+    realm: ${KEYCLOAK_REALM:parknova}
+    client-id: ${KEYCLOAK_CLIENT_ID:parknova-api-gateway}
+    client-secret: ${KEYCLOAK_CLIENT_SECRET:CHANGE_ME}
+    jwt-decoder-enabled: true
+
+spring:
+  mail:
+    host: ${SPRING_MAIL_HOST:localhost}
+    port: ${SPRING_MAIL_PORT:1025}
+  cloud:
+    gateway:
+      mvc:
+        routes:
+          - id: parknova-offstreet-mobile
+            uri: ${MOBILE_SERVICE_URI:http://localhost:8081}
+            predicates:
+              - Path=/client/**,/internal/**,/mobile/**
+          - id: parknova-offstreet-service
+            uri: ${OFFSTREET_SERVICE_URI:http://localhost:8090}
+            predicates:
+              - Path=/api/v1/**,/customer/**,/external/**
+
+logging:
+  level:
+    com.parknova.parknovaapigateway: DEBUG
+    org.springframework.security: DEBUG
