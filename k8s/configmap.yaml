@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: parknova-offstreet-api-gateway-config
+  labels:
+    app: parknova-offstreet-api-gateway
+data:
+  APPLICATION_NAME: "parknova-api-gateway"
+  APPLICATION_PORT: "8080"
+  MOBILE_SERVICE_URI: "http://parknova-offstreet-mobile-service:8081"
+  OFFSTREET_SERVICE_URI: "http://parknova-offstreet-service:8090"
+  KEYCLOAK_BASE_URL: "https://keycloak-dev.eden-tech.io"
+  KEYCLOAK_REALM: "parknova"
+  KEYCLOAK_CLIENT_ID: "parknova-api-gateway"
+  SPRING_MAIL_HOST: "localhost"
+  SPRING_MAIL_PORT: "1025"
+  SPRING_MAIL_AUTH: "false"
+  SPRING_MAIL_STARTTLS: "false"
+  MAIL_FROM: "noreply@parknova.io"
