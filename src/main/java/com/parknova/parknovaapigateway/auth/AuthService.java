@@ -29,17 +29,20 @@ public class AuthService {
     private final KeycloakTokenService keycloakTokenService;
     private final OtpService otpService;
     private final EmailService emailService;
+    private final com.parknova.parknovaapigateway.config.ParknovaProperties properties;
 
     public AuthService(
             KeycloakAdminService keycloakAdminService,
             KeycloakTokenService keycloakTokenService,
             OtpService otpService,
-            EmailService emailService
+            EmailService emailService,
+            com.parknova.parknovaapigateway.config.ParknovaProperties properties
     ) {
         this.keycloakAdminService = keycloakAdminService;
         this.keycloakTokenService = keycloakTokenService;
         this.otpService = otpService;
         this.emailService = emailService;
+        this.properties = properties;
     }
 
     public MessageResponse register(RegisterRequest request) {
@@ -72,14 +75,15 @@ public class AuthService {
         return new MessageResponse("A new verification OTP has been sent to your email.");
     }
 
-    public TokenResponse login(LoginRequest request) {
+    public TokenResponse login(String channel, LoginRequest request) {
         String username = request.username().trim();
         var user = keycloakAdminService.findByUsername(username)
                 .or(() -> keycloakAdminService.findByEmail(username));
         if (user.isPresent() && !Boolean.TRUE.equals(user.get().isEmailVerified())) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Email not verified. Please verify your email first.");
         }
-        return keycloakTokenService.login(username, request.password());
+        var client = properties.keycloak().clientFor(channel);
+        return keycloakTokenService.login(client.clientId(), client.clientSecret(), username, request.password());
     }
 
     public MessageResponse forgotPassword(ForgotPasswordRequest request) {
@@ -104,8 +108,9 @@ public class AuthService {
         return new MessageResponse("Password reset successful. Please log in with your new password.");
     }
 
-    public MessageResponse logout(LogoutRequest request) {
-        keycloakTokenService.logout(request.refreshToken());
+    public MessageResponse logout(String channel, LogoutRequest request) {
+        var client = properties.keycloak().clientFor(channel);
+        keycloakTokenService.logout(client.clientId(), client.clientSecret(), request.refreshToken());
         return new MessageResponse("Logged out successfully. Active sessions have been revoked.");
     }
 

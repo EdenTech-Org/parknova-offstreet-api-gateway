@@ -26,8 +26,8 @@ public class KeycloakTokenService {
         this.properties = properties;
     }
 
-    public TokenResponse login(String username, String password) {
-        MultiValueMap<String, String> form = baseClientForm();
+    public TokenResponse login(String clientId, String clientSecret, String username, String password) {
+        MultiValueMap<String, String> form = baseClientForm(clientId, clientSecret);
         form.add("grant_type", "password");
         form.add("username", username);
         form.add("password", password);
@@ -35,8 +35,8 @@ public class KeycloakTokenService {
         return postToken(form, "Invalid username or password");
     }
 
-    public void logout(String refreshToken) {
-        MultiValueMap<String, String> form = baseClientForm();
+    public void logout(String clientId, String clientSecret, String refreshToken) {
+        MultiValueMap<String, String> form = baseClientForm(clientId, clientSecret);
         form.add("refresh_token", refreshToken);
 
         try {
@@ -50,12 +50,12 @@ public class KeycloakTokenService {
         } catch (HttpClientErrorException ex) {
             log.warn("Keycloak logout failed: {} {}", ex.getStatusCode(), ex.getResponseBodyAsString());
             // Fallback: try token revocation endpoint
-            revokeRefreshToken(refreshToken);
+            revokeRefreshToken(clientId, clientSecret, refreshToken);
         }
     }
 
-    private void revokeRefreshToken(String refreshToken) {
-        MultiValueMap<String, String> form = baseClientForm();
+    private void revokeRefreshToken(String clientId, String clientSecret, String refreshToken) {
+        MultiValueMap<String, String> form = baseClientForm(clientId, clientSecret);
         form.add("token", refreshToken);
         form.add("token_type_hint", "refresh_token");
         try {
@@ -91,10 +91,10 @@ public class KeycloakTokenService {
         }
     }
 
-    private MultiValueMap<String, String> baseClientForm() {
+    private MultiValueMap<String, String> baseClientForm(String clientId, String clientSecret) {
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("client_id", properties.keycloak().clientId());
-        form.add("client_secret", properties.keycloak().clientSecret());
+        form.add("client_id", clientId);
+        form.add("client_secret", clientSecret);
         return form;
     }
 }

@@ -11,15 +11,23 @@ import com.parknova.parknovaapigateway.auth.dto.TokenResponse;
 import com.parknova.parknovaapigateway.auth.dto.VerifyEmailRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Set;
+
 @RestController
 @RequestMapping("/auth")
 public class AuthController {
+
+    /** Login channels that map to a per-channel Keycloak client. */
+    private static final Set<String> CHANNELS = Set.of("portal", "org", "mobile");
+    /** Default channel for the legacy {@code /auth/login} and {@code /auth/logout} paths. */
+    private static final String DEFAULT_CHANNEL = "mobile";
 
     private final AuthService authService;
 
@@ -45,7 +53,13 @@ public class AuthController {
 
     @PostMapping("/login")
     public TokenResponse login(@Valid @RequestBody LoginRequest request) {
-        return authService.login(request);
+        return authService.login(DEFAULT_CHANNEL, request);
+    }
+
+    /** Per-channel login: {@code /auth/portal/login}, {@code /auth/org/login}, {@code /auth/mobile/login}. */
+    @PostMapping("/{channel}/login")
+    public TokenResponse login(@PathVariable String channel, @Valid @RequestBody LoginRequest request) {
+        return authService.login(requireChannel(channel), request);
     }
 
     @PostMapping("/forgot-password")
@@ -60,6 +74,19 @@ public class AuthController {
 
     @PostMapping("/logout")
     public MessageResponse logout(@Valid @RequestBody LogoutRequest request) {
-        return authService.logout(request);
+        return authService.logout(DEFAULT_CHANNEL, request);
+    }
+
+    @PostMapping("/{channel}/logout")
+    public MessageResponse logout(@PathVariable String channel, @Valid @RequestBody LogoutRequest request) {
+        return authService.logout(requireChannel(channel), request);
+    }
+
+    private static String requireChannel(String channel) {
+        if (channel == null || !CHANNELS.contains(channel)) {
+            throw new com.parknova.parknovaapigateway.exception.ApiException(
+                    HttpStatus.NOT_FOUND, "Unknown login channel: " + channel);
+        }
+        return channel;
     }
 }
