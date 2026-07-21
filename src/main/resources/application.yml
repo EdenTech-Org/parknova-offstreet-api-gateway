@@ -24,6 +24,10 @@ spring:
             uri: ${OFFSTREET_SERVICE_URI:http://localhost:8090}
             predicates:
               - Path=/api/v1/**,/customer/**,/external/**
+          - id: parknova-org-admin
+            uri: ${ORG_ADMIN_URI:http://localhost:8091}
+            predicates:
+              - Path=/org/**
       globalcors:
         corsConfigurations:
           '[/**]':
@@ -37,9 +41,21 @@ parknova:
   keycloak:
     base-url: ${KEYCLOAK_BASE_URL:https://keycloak-dev.eden-tech.io}
     realm: ${KEYCLOAK_REALM:parknova}
+    # Admin/service client used by KeycloakAdminService (create user, verify email, reset password).
     client-id: ${KEYCLOAK_CLIENT_ID:parknova-api-gateway}
     client-secret: ${KEYCLOAK_CLIENT_SECRET:CHANGE_ME}
     jwt-decoder-enabled: true
+    # Per-channel confidential login (ROPC) clients used by the BFF /auth/{channel}/login.
+    clients:
+      portal:
+        client-id: ${KEYCLOAK_PORTAL_CLIENT_ID:parknova-portal}
+        client-secret: ${KEYCLOAK_PORTAL_CLIENT_SECRET:CHANGE_ME}
+      org:
+        client-id: ${KEYCLOAK_ORG_CLIENT_ID:parknova-org}
+        client-secret: ${KEYCLOAK_ORG_CLIENT_SECRET:CHANGE_ME}
+      mobile:
+        client-id: ${KEYCLOAK_MOBILE_CLIENT_ID:parknova-mobile}
+        client-secret: ${KEYCLOAK_MOBILE_CLIENT_SECRET:CHANGE_ME}
   otp:
     length: 6
     ttl-minutes: 10
