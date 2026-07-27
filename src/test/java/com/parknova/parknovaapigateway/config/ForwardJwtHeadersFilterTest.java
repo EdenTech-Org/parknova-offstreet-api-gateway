@@ -24,7 +24,7 @@ class ForwardJwtHeadersFilterTest {
     }
 
     @Test
-    void addsBearerAndIdentityHeadersFromSecurityContext() {
+    void consumerPath_setsUserIdentityHeaders() {
         Jwt jwt = Jwt.withTokenValue("access-token-value")
                 .header("alg", "none")
                 .subject("user-sub-1")
@@ -42,10 +42,31 @@ class ForwardJwtHeadersFilterTest {
         HttpHeaders out = filter.apply(new HttpHeaders(), serverRequest);
 
         assertThat(out.getFirst(HttpHeaders.AUTHORIZATION)).isEqualTo("Bearer access-token-value");
-        assertThat(out.getFirst("X-User-Sub")).isEqualTo("user-sub-1");
-        assertThat(out.getFirst("X-User-Username")).isEqualTo("jdoe");
-        assertThat(out.getFirst("X-User-Email")).isEqualTo("jdoe@example.com");
-        assertThat(out.getFirst("X-User-Phone")).isEqualTo("+966500000000");
+        assertThat(out.getFirst(ForwardJwtHeadersFilter.GATEWAY_MARK)).isEqualTo("1");
+        assertThat(out.getFirst(ForwardJwtHeadersFilter.USER_SUB)).isEqualTo("user-sub-1");
+        assertThat(out.getFirst(ForwardJwtHeadersFilter.USER_USERNAME)).isEqualTo("jdoe");
+        assertThat(out.getFirst(ForwardJwtHeadersFilter.OFFICER_SUB)).isNull();
+    }
+
+    @Test
+    void enforcerPath_setsOfficerIdentityHeaders() {
+        Jwt jwt = Jwt.withTokenValue("enforcer-token")
+                .header("alg", "none")
+                .subject("officer-1")
+                .claim("preferred_username", "officer")
+                .issuedAt(Instant.now())
+                .expiresAt(Instant.now().plusSeconds(60))
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt));
+
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/enforcer/v1/gates/check");
+        ServerRequest serverRequest = ServerRequest.create(servletRequest, List.of());
+
+        HttpHeaders out = filter.apply(new HttpHeaders(), serverRequest);
+
+        assertThat(out.getFirst(ForwardJwtHeadersFilter.OFFICER_SUB)).isEqualTo("officer-1");
+        assertThat(out.getFirst(ForwardJwtHeadersFilter.OFFICER_USERNAME)).isEqualTo("officer");
+        assertThat(out.getFirst(ForwardJwtHeadersFilter.USER_SUB)).isNull();
     }
 
     @Test
@@ -59,6 +80,6 @@ class ForwardJwtHeadersFilterTest {
 
         assertThat(out.getFirst(HttpHeaders.AUTHORIZATION)).isNull();
         assertThat(out.getFirst("X-SERVICE-TO-SERVICE")).isEqualTo("secret");
-        assertThat(out.getFirst("X-User-Sub")).isNull();
+        assertThat(out.getFirst(ForwardJwtHeadersFilter.USER_SUB)).isNull();
     }
 }

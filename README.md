@@ -100,7 +100,7 @@ Authorization: Bearer <access_token>
 | `/internal/v1/sessions/**` | Public (service header checked downstream) | `MOBILE_SERVICE_URI` |
 | `/mobile/**` | JWT | `MOBILE_SERVICE_URI` (alias) |
 | `/api/v1/**`, `/customer/**` | JWT | `OFFSTREET_SERVICE_URI` (default `http://localhost:8090`) |
-| `/external/**` | JWT | `OFFSTREET_SERVICE_URI` (operator/external catalog; mobile uses Feign direct) |
+| `/api/external/**` | JWT | `OFFSTREET_SERVICE_URI` (mobile Feign catalog; usually called service-to-service) |
 | `/swagger-ui/**`, `/api-docs/**` | Public | Passthrough when routed to mobile |
 
 ### Mobile / ANPR env vars

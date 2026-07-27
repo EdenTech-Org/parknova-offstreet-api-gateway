@@ -21,7 +21,7 @@ spring:
           - id: parknova-offstreet-service
             uri: ${OFFSTREET_SERVICE_URI:http://localhost:8090}
             predicates:
-              - Path=/api/v1/**,/customer/**,/external/**
+              - Path=/api/v1/**,/api/external/**,/customer/**
 
 logging:
   level:
