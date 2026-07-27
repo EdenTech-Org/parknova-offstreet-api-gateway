@@ -1,0 +1,1080 @@
+{
+  "info": {
+    "_postman_id": "parknova-consumer-enforcer-journey",
+    "name": "ParkNova Consumer + Enforcer Journey",
+    "description": "Full dual-app E2E through the API Gateway.\n\n## Realms\n- Consumer: Keycloak `parknova` via /auth/login \u2192 access_token\n- Enforcer: Keycloak `eden-crm-sec-users` \u2192 set enforcer_access_token\n  (or set baseUrl=http://localhost:8081 and use X-Officer-Sub)\n\n## Runner order\nA Health \u2192 B Consumer Auth \u2192 C Consumer Setup \u2192 D Prepare \u2192 E Enforcer Setup \u2192 F Entry \u2192 G Consumer Timer \u2192 H Exit \u2192 I Wrap-up\n\nSee docs/CONSUMER-ENFORCER-INTEGRATION-JOURNEY.md",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "username",
+      "value": "jdoe"
+    },
+    {
+      "key": "email",
+      "value": "jdoe@example.com"
+    },
+    {
+      "key": "firstName",
+      "value": "John"
+    },
+    {
+      "key": "lastName",
+      "value": "Doe"
+    },
+    {
+      "key": "phone",
+      "value": "+966500000000"
+    },
+    {
+      "key": "password",
+      "value": "SecurePass1!"
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "refresh_token",
+      "value": ""
+    },
+    {
+      "key": "enforcer_access_token",
+      "value": ""
+    },
+    {
+      "key": "officerSub",
+      "value": "enforcer-officer-1"
+    },
+    {
+      "key": "lat",
+      "value": "24.7136"
+    },
+    {
+      "key": "lng",
+      "value": "46.6753"
+    },
+    {
+      "key": "garageId",
+      "value": "1"
+    },
+    {
+      "key": "zoneId",
+      "value": "10"
+    },
+    {
+      "key": "gateId",
+      "value": "ENTRY-1"
+    },
+    {
+      "key": "exitGateId",
+      "value": "EXIT-1"
+    },
+    {
+      "key": "productId",
+      "value": "1"
+    },
+    {
+      "key": "vehicleTypeId",
+      "value": "1"
+    },
+    {
+      "key": "modelTypeId",
+      "value": "1"
+    },
+    {
+      "key": "licenseTypeId",
+      "value": "1"
+    },
+    {
+      "key": "vehicleId",
+      "value": "1"
+    },
+    {
+      "key": "sessionId",
+      "value": "1"
+    },
+    {
+      "key": "invoiceId",
+      "value": "1"
+    },
+    {
+      "key": "plateNumber",
+      "value": "1234-ABC"
+    },
+    {
+      "key": "plateCountry",
+      "value": "SA"
+    },
+    {
+      "key": "registrationType",
+      "value": "PRIVATE_CARS"
+    }
+  ],
+  "item": [
+    {
+      "name": "A. Health",
+      "item": [
+        {
+          "name": "A.1 Gateway health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/health",
+            "description": "Gateway up"
+          },
+          "response": []
+        }
+      ],
+      "description": "Sanity check"
+    },
+    {
+      "name": "B. Consumer Auth",
+      "item": [
+        {
+          "name": "B.1 Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/register",
+            "description": "Create consumer in Keycloak realm parknova",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"email\": \"{{email}}\",\n  \"firstName\": \"{{firstName}}\",\n  \"lastName\": \"{{lastName}}\",\n  \"phone\": \"{{phone}}\",\n  \"password\": \"{{password}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Created or exists', function () {",
+                  "  pm.expect([201, 409]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "B.2 Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Email login \u2014 stores consumer JWT",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('access_token', j.access_token);",
+                  "pm.collectionVariables.set('refresh_token', j.refresh_token);"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Consumer JWT (realm parknova)"
+    },
+    {
+      "name": "C. Consumer Setup",
+      "item": [
+        {
+          "name": "C.1 Bootstrap",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/me/bootstrap",
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "C.2 Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/me",
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "C.3 Vehicle types",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/lookups/vehicle-types",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const a = pm.response.json();",
+                  "  const list = Array.isArray(a) ? a : (a.content || a.items || []);",
+                  "  if (list[0] && list[0].id) pm.collectionVariables.set('vehicleTypeId', String(list[0].id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "C.4 Model types",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/lookups/model-types",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const a = pm.response.json();",
+                  "  const list = Array.isArray(a) ? a : (a.content || a.items || []);",
+                  "  if (list[0] && list[0].id) pm.collectionVariables.set('modelTypeId', String(list[0].id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "C.5 License types",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/lookups/license-types",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const a = pm.response.json();",
+                  "  const list = Array.isArray(a) ? a : (a.content || a.items || []);",
+                  "  if (list[0] && list[0].id) pm.collectionVariables.set('licenseTypeId', String(list[0].id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "C.6 Create vehicle",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/vehicles",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plate\": \"{{plateNumber}}\",\n  \"size\": \"NORMAL\",\n  \"registrationType\": \"PRIVATE_CARS\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('vehicleId', String(pm.response.json().id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "C.7 List garages",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/garages?lat={{lat}}&lng={{lng}}&radiusKm=20&includePeriods=true",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  const list = j.content || j.items || (Array.isArray(j) ? j : []);",
+                  "  if (list[0]) {",
+                  "    const g = list[0];",
+                  "    if (g.garageId) pm.collectionVariables.set('garageId', String(g.garageId));",
+                  "    if (g.zones && g.zones[0]) {",
+                  "      pm.collectionVariables.set('zoneId', String(g.zones[0].zoneId));",
+                  "      const p = (g.zones[0].periods || [])[0];",
+                  "      if (p && p.products && p.products[0]) {",
+                  "        pm.collectionVariables.set('productId', String(p.products[0].productId));",
+                  "      }",
+                  "    }",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "C.8 Garage availability",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/garages/{{garageId}}/availability",
+            "description": ""
+          },
+          "response": []
+        }
+      ],
+      "description": "Profile, lookups, vehicle, garages"
+    },
+    {
+      "name": "D. Consumer Prepare",
+      "item": [
+        {
+          "name": "D.1 Prepare session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/sessions/prepare",
+            "description": "PENDING_ENTRY \u2014 wait for Enforcer gate",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"garageId\": {{garageId}},\n  \"productId\": {{productId}},\n  \"vehicleId\": {{vehicleId}}\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Prepare ok', function () {",
+                  "  pm.expect([200, 201]).to.include(pm.response.code);",
+                  "});",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('sessionId', String(pm.response.json().id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "E. Enforcer Setup",
+      "item": [
+        {
+          "name": "E.1 Catalog",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{enforcer_access_token}}"
+              },
+              {
+                "key": "X-Officer-Sub",
+                "value": "{{officerSub}}"
+              }
+            ],
+            "url": "{{baseUrl}}/enforcer/v1/catalog",
+            "description": "Garages/zones/gates. Needs enforcer JWT or X-Officer-Sub on :8081"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const list = pm.response.json();",
+                  "  if (Array.isArray(list) && list[0]) {",
+                  "    pm.collectionVariables.set('garageId', String(list[0].garageId));",
+                  "    if (list[0].zones && list[0].zones[0]) {",
+                  "      pm.collectionVariables.set('zoneId', String(list[0].zones[0].zoneId));",
+                  "      const gates = list[0].zones[0].gates || [];",
+                  "      if (gates[0] && gates[0].gateId) pm.collectionVariables.set('gateId', gates[0].gateId);",
+                  "    }",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "E.2 Registration types",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{enforcer_access_token}}"
+              },
+              {
+                "key": "X-Officer-Sub",
+                "value": "{{officerSub}}"
+              }
+            ],
+            "url": "{{baseUrl}}/enforcer/v1/registration-types",
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "E.3 Assign garage/zone/gate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{enforcer_access_token}}"
+              },
+              {
+                "key": "X-Officer-Sub",
+                "value": "{{officerSub}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/enforcer/v1/assignments",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"garageId\": {{garageId}},\n  \"zoneId\": {{zoneId}},\n  \"gateId\": \"{{gateId}}\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E.4 Current assignment",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{enforcer_access_token}}"
+              },
+              {
+                "key": "X-Officer-Sub",
+                "value": "{{officerSub}}"
+              }
+            ],
+            "url": "{{baseUrl}}/enforcer/v1/assignments/current",
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "E.5 Capacity",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{enforcer_access_token}}"
+              },
+              {
+                "key": "X-Officer-Sub",
+                "value": "{{officerSub}}"
+              }
+            ],
+            "url": "{{baseUrl}}/enforcer/v1/capacity?garageId={{garageId}}&zoneId={{zoneId}}",
+            "description": ""
+          },
+          "response": []
+        }
+      ],
+      "description": "Officer assignment before scanning"
+    },
+    {
+      "name": "F. Enforcer Entry (IN)",
+      "item": [
+        {
+          "name": "F.1 Check IN",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{enforcer_access_token}}"
+              },
+              {
+                "key": "X-Officer-Sub",
+                "value": "{{officerSub}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/enforcer/v1/gates/check",
+            "description": "Resolves CORPORATE (org-admin employee/visitor) vs CONSUMER",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mode\": \"IN\",\n  \"plateNumber\": \"{{plateNumber}}\",\n  \"plateCountry\": \"{{plateCountry}}\",\n  \"registrationType\": \"{{registrationType}}\",\n  \"garageId\": {{garageId}},\n  \"zoneId\": {{zoneId}},\n  \"gateId\": \"{{gateId}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Check IN responded', function () {",
+                  "  pm.expect([200, 201, 409]).to.include(pm.response.code);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  pm.collectionVariables.set('lastOutcome', j.outcome || '');",
+                  "  if (j.sessionId) pm.collectionVariables.set('sessionId', String(j.sessionId));",
+                  "  if (j.session && j.session.id) pm.collectionVariables.set('sessionId', String(j.session.id));",
+                  "  console.log('outcome=' + j.outcome + ' segment=' + j.segment + ' subjectType=' + j.subjectType);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "F.2 Enter (only if CONFIRM / fallback)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{enforcer_access_token}}"
+              },
+              {
+                "key": "X-Officer-Sub",
+                "value": "{{officerSub}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/enforcer/v1/gates/enter",
+            "description": "Skip for AUTO_ENTER_* (already admitted). Use for CONFIRM_ENTER_CONSUMER or Enter-as-Consumer.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plateNumber\": \"{{plateNumber}}\",\n  \"plateCountry\": \"{{plateCountry}}\",\n  \"registrationType\": \"{{registrationType}}\",\n  \"garageId\": {{garageId}},\n  \"zoneId\": {{zoneId}},\n  \"gateId\": \"{{gateId}}\",\n  \"admissionPool\": \"CONSUMER\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  if (j.sessionId) pm.collectionVariables.set('sessionId', String(j.sessionId));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Plate check-in at gate"
+    },
+    {
+      "name": "G. Consumer Timer (Active)",
+      "item": [
+        {
+          "name": "G.1 Active session",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/sessions/active",
+            "description": "Poll for timer: timerRunning, elapsedSeconds, startedAt, serverTime"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Active or awaiting payment', function () {",
+                  "  if (pm.response.code === 200) {",
+                  "    const j = pm.response.json();",
+                  "    pm.expect(['ACTIVE', 'AWAITING_PAYMENT']).to.include(j.status);",
+                  "    pm.collectionVariables.set('sessionId', String(j.id));",
+                  "    if (j.invoiceId) pm.collectionVariables.set('invoiceId', String(j.invoiceId));",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "G.2 Notifications",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/notifications?page=0&size=20",
+            "description": ""
+          },
+          "response": []
+        }
+      ],
+      "description": "Consumer app shows live parking timer after gate entry"
+    },
+    {
+      "name": "H. Enforcer Exit (OUT) + Pay",
+      "item": [
+        {
+          "name": "H.1 Check OUT",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{enforcer_access_token}}"
+              },
+              {
+                "key": "X-Officer-Sub",
+                "value": "{{officerSub}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/enforcer/v1/gates/check",
+            "description": "Consumer \u2192 EXIT_AWAITING_PAYMENT + invoice; Corporate \u2192 CONFIRM_EXIT_PERMITTED",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mode\": \"OUT\",\n  \"plateNumber\": \"{{plateNumber}}\",\n  \"plateCountry\": \"{{plateCountry}}\",\n  \"registrationType\": \"{{registrationType}}\",\n  \"garageId\": {{garageId}},\n  \"zoneId\": {{zoneId}},\n  \"gateId\": \"{{exitGateId}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  if (j.invoice && j.invoice.id) pm.collectionVariables.set('invoiceId', String(j.invoice.id));",
+                  "  if (j.session && j.session.invoiceId) pm.collectionVariables.set('invoiceId', String(j.session.invoiceId));",
+                  "  console.log('exit outcome=' + j.outcome + ' exitEnabled=' + j.exitEnabled);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "H.2 Consumer pay invoice (always PAID)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/invoices/{{invoiceId}}/pay",
+            "description": "Stub always returns success",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"paymentMethod\": \"CARD\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Pay success', function () {",
+                  "  if (pm.response.code === 200) {",
+                  "    pm.expect(pm.response.json().status).to.eql('PAID');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "H.3 Enforcer mark-paid (alt stub)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{enforcer_access_token}}"
+              },
+              {
+                "key": "X-Officer-Sub",
+                "value": "{{officerSub}}"
+              }
+            ],
+            "url": "{{baseUrl}}/enforcer/v1/invoices/{{invoiceId}}/mark-paid",
+            "description": "Alternative to consumer pay \u2014 always success"
+          },
+          "response": []
+        },
+        {
+          "name": "H.4 Check OUT again (after pay)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{enforcer_access_token}}"
+              },
+              {
+                "key": "X-Officer-Sub",
+                "value": "{{officerSub}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/enforcer/v1/gates/check",
+            "description": "Expect CONFIRM_EXIT_PAID or CONFIRM_EXIT_PERMITTED",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mode\": \"OUT\",\n  \"plateNumber\": \"{{plateNumber}}\",\n  \"plateCountry\": \"{{plateCountry}}\",\n  \"registrationType\": \"{{registrationType}}\",\n  \"garageId\": {{garageId}},\n  \"zoneId\": {{zoneId}},\n  \"gateId\": \"{{exitGateId}}\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "H.5 Exit confirm",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{enforcer_access_token}}"
+              },
+              {
+                "key": "X-Officer-Sub",
+                "value": "{{officerSub}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/enforcer/v1/gates/exit",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plateNumber\": \"{{plateNumber}}\",\n  \"plateCountry\": \"{{plateCountry}}\",\n  \"registrationType\": \"{{registrationType}}\",\n  \"garageId\": {{garageId}},\n  \"zoneId\": {{zoneId}},\n  \"gateId\": \"{{exitGateId}}\",\n  \"invoiceId\": {{invoiceId}}\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "H.6 Activity log",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{enforcer_access_token}}"
+              },
+              {
+                "key": "X-Officer-Sub",
+                "value": "{{officerSub}}"
+              }
+            ],
+            "url": "{{baseUrl}}/enforcer/v1/activity?page=0&size=20",
+            "description": ""
+          },
+          "response": []
+        }
+      ],
+      "description": "Payment-gated consumer exit or free corporate exit"
+    },
+    {
+      "name": "I. Consumer Wrap-up",
+      "item": [
+        {
+          "name": "I.1 Session history",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/sessions?page=0&size=20",
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "I.2 List invoices",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/invoices?page=0&size=20",
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "I.3 Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/logout",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "J. Demo plates (optional)",
+      "item": [
+        {
+          "name": "J.1 Check IN AAA112 (Shared auto)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{enforcer_access_token}}"
+              },
+              {
+                "key": "X-Officer-Sub",
+                "value": "{{officerSub}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/enforcer/v1/gates/check",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mode\": \"IN\",\n  \"plateNumber\": \"AAA112\",\n  \"plateCountry\": \"SA\",\n  \"registrationType\": \"PRIVATE_CARS\",\n  \"garageId\": {{garageId}},\n  \"zoneId\": {{zoneId}},\n  \"gateId\": \"{{gateId}}\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "J.2 Check IN AAA113 (Dedicated)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{enforcer_access_token}}"
+              },
+              {
+                "key": "X-Officer-Sub",
+                "value": "{{officerSub}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/enforcer/v1/gates/check",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mode\": \"IN\",\n  \"plateNumber\": \"AAA113\",\n  \"plateCountry\": \"SA\",\n  \"registrationType\": \"PRIVATE_CARS\",\n  \"garageId\": {{garageId}},\n  \"zoneId\": {{zoneId}},\n  \"gateId\": \"{{gateId}}\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "J.3 Check OUT AAA116 (consumer exit demo)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{enforcer_access_token}}"
+              },
+              {
+                "key": "X-Officer-Sub",
+                "value": "{{officerSub}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/enforcer/v1/gates/check",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mode\": \"OUT\",\n  \"plateNumber\": \"AAA116\",\n  \"plateCountry\": \"SA\",\n  \"registrationType\": \"PRIVATE_CARS\",\n  \"garageId\": {{garageId}},\n  \"zoneId\": {{zoneId}},\n  \"gateId\": \"{{exitGateId}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  if (j.invoice && j.invoice.id) pm.collectionVariables.set('invoiceId', String(j.invoice.id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "BRD demo plates AAA111\u2013AAA118 (run after Enforcer assign)"
+    }
+  ]
+}

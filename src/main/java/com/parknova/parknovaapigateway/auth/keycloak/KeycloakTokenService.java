@@ -1,5 +1,7 @@
 package com.parknova.parknovaapigateway.auth.keycloak;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parknova.parknovaapigateway.auth.dto.TokenResponse;
 import com.parknova.parknovaapigateway.config.ParknovaProperties;
 import com.parknova.parknovaapigateway.exception.ApiException;
@@ -20,10 +22,12 @@ public class KeycloakTokenService {
 
     private final RestClient restClient;
     private final ParknovaProperties properties;
+    private final ObjectMapper objectMapper;
 
-    public KeycloakTokenService(RestClient restClient, ParknovaProperties properties) {
+    public KeycloakTokenService(RestClient restClient, ParknovaProperties properties, ObjectMapper objectMapper) {
         this.restClient = restClient;
         this.properties = properties;
+        this.objectMapper = objectMapper;
     }
 
     public TokenResponse login(String username, String password) {
@@ -32,7 +36,7 @@ public class KeycloakTokenService {
         form.add("username", username);
         form.add("password", password);
         form.add("scope", "openid");
-        return postToken(form, "Invalid username or password");
+        return postToken(form, "Invalid email or password");
     }
 
     public void logout(String refreshToken) {
@@ -83,11 +87,45 @@ public class KeycloakTokenService {
             }
             return response;
         } catch (HttpClientErrorException.Unauthorized | HttpClientErrorException.BadRequest ex) {
-            log.warn("Keycloak token request failed: {}", ex.getResponseBodyAsString());
-            throw new ApiException(HttpStatus.UNAUTHORIZED, failMessage);
+            String body = ex.getResponseBodyAsString();
+            log.warn("Keycloak token request failed: {}", body);
+            throw new ApiException(HttpStatus.UNAUTHORIZED, mapTokenError(body, failMessage));
         } catch (HttpClientErrorException ex) {
             log.error("Keycloak token error: {} {}", ex.getStatusCode(), ex.getResponseBodyAsString());
             throw new ApiException(HttpStatus.BAD_GATEWAY, "Authentication service unavailable");
+        }
+    }
+
+    private String mapTokenError(String body, String fallback) {
+        String description = readErrorDescription(body);
+        if (description == null || description.isBlank()) {
+            return fallback;
+        }
+        String normalized = description.toLowerCase();
+        if (normalized.contains("not fully set up") || normalized.contains("required action")) {
+            return "Account is not fully set up in Keycloak (required action pending). "
+                    + "Clear Required user actions on the user in Keycloak Admin Console.";
+        }
+        if (normalized.contains("invalid_grant") || normalized.contains("invalid user credentials")) {
+            return fallback;
+        }
+        return description;
+    }
+
+    private String readErrorDescription(String body) {
+        if (body == null || body.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode node = objectMapper.readTree(body);
+            JsonNode description = node.get("error_description");
+            if (description != null && !description.isNull()) {
+                return description.asText();
+            }
+            JsonNode error = node.get("error");
+            return error != null && !error.isNull() ? error.asText() : null;
+        } catch (Exception ignored) {
+            return null;
         }
     }
 

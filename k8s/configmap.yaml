@@ -12,8 +12,3 @@ data:
   KEYCLOAK_BASE_URL: "https://keycloak-dev.eden-tech.io"
   KEYCLOAK_REALM: "parknova"
   KEYCLOAK_CLIENT_ID: "parknova-api-gateway"
-  SPRING_MAIL_HOST: "localhost"
-  SPRING_MAIL_PORT: "1025"
-  SPRING_MAIL_AUTH: "false"
-  SPRING_MAIL_STARTTLS: "false"
-  MAIL_FROM: "noreply@parknova.io"

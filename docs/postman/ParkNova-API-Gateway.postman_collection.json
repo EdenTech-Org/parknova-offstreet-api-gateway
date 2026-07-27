@@ -1,0 +1,925 @@
+{
+  "info": {
+    "_postman_id": "parknova-gateway-mobile-e2e",
+    "name": "ParkNova Gateway + Mobile Consumer E2E",
+    "description": "Full consumer flow through API Gateway (auth + mobile /client/**).\n\n## Gate check-in/out (important)\nProduction path: Enforcer Flutter app \u2192 REST gate check/confirm \u2192 offstreet rules \u2192 Kafka session/capacity/payment events.\nConsumer Flutter never calls check-in/out. See docs/ENFORCER-KAFKA-CHECKIN-CHECKOUT.md.\nFolder 6 ANPR requests are COMPAT/TEST only (simulate gate until Enforcer+Kafka ships).\n\n## Run order (Collection Runner)\n1. Health\n2. Auth \u2014 Register \u2192 Login\n3. Profile \u2014 Bootstrap \u2192 Me \u2192 Update \u2192 Support\n4. Lookups\n5. Vehicles \u2014 create saves vehicleId\n6. Garages \u2014 list may set garageId\n7. Happy path parking \u2014 Prepare \u2192 (compat ANPR Check-In) \u2192 Active \u2192 Check-Out/End \u2192 Pay\n8. History / notifications\n9. Logout\n\n## Prerequisites\n- Gateway :8080\n- Mobile service :8081 (routed via gateway)\n- Offstreet service :8090 (garages/products)\n- Keycloak realm parknova\n- Set serviceSecret to match mobile SERVICE_TO_SERVICE_SECRET\n",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "username",
+      "value": "jdoe"
+    },
+    {
+      "key": "email",
+      "value": "jdoe@example.com"
+    },
+    {
+      "key": "firstName",
+      "value": "John"
+    },
+    {
+      "key": "lastName",
+      "value": "Doe"
+    },
+    {
+      "key": "phone",
+      "value": "+966500000000"
+    },
+    {
+      "key": "password",
+      "value": "SecurePass1!"
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "refresh_token",
+      "value": ""
+    },
+    {
+      "key": "serviceSecret",
+      "value": "CHANGE_ME"
+    },
+    {
+      "key": "lat",
+      "value": "24.7136"
+    },
+    {
+      "key": "lng",
+      "value": "46.6753"
+    },
+    {
+      "key": "garageId",
+      "value": "1"
+    },
+    {
+      "key": "productId",
+      "value": "1"
+    },
+    {
+      "key": "vehicleId",
+      "value": "1"
+    },
+    {
+      "key": "sessionId",
+      "value": "1"
+    },
+    {
+      "key": "invoiceId",
+      "value": "1"
+    },
+    {
+      "key": "paymentId",
+      "value": "1"
+    },
+    {
+      "key": "notificationId",
+      "value": "1"
+    },
+    {
+      "key": "plateNumber",
+      "value": "1234-ABC"
+    },
+    {
+      "key": "plateCountry",
+      "value": "SA"
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Health",
+      "description": "Sanity check",
+      "item": [
+        {
+          "name": "0.1 Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/health",
+            "description": "Gateway health"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "1. Auth (gateway)",
+      "description": "Register then login. Skip register if user already exists.",
+      "item": [
+        {
+          "name": "1.1 Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/register",
+            "description": "Create Keycloak user (emailVerified=false, firstName/lastName required).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"email\": \"{{email}}\",\n  \"firstName\": \"{{firstName}}\",\n  \"lastName\": \"{{lastName}}\",\n  \"phone\": \"{{phone}}\",\n  \"password\": \"{{password}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Created or already exists', function () {",
+                  "  pm.expect([201, 409]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.2 Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Login with email; stores access_token and refresh_token.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('access_token', j.access_token);",
+                  "pm.collectionVariables.set('refresh_token', j.refresh_token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Profile",
+      "description": "Bootstrap then profile APIs",
+      "item": [
+        {
+          "name": "2.1 Bootstrap Me",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/me/bootstrap",
+            "description": "Create consumer profile from JWT claims (run once after first login)."
+          },
+          "response": []
+        },
+        {
+          "name": "2.2 Get Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/me",
+            "description": "Current profile."
+          },
+          "response": []
+        },
+        {
+          "name": "2.3 Update Me",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/me",
+            "description": "Update profile fields.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullNameAr\": \"\u062c\u0648\u0646 \u062f\u0648\",\n  \"fullNameEn\": \"John Doe\",\n  \"phone\": \"{{phone}}\",\n  \"locale\": \"en\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2.4 Support",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/support",
+            "description": "Support contacts."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Lookups",
+      "description": "Vehicle dropdown data",
+      "item": [
+        {
+          "name": "3.1 Vehicle Types",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/lookups/vehicle-types",
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "3.2 Model Types",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/lookups/model-types",
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "3.3 License Types",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/lookups/license-types",
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Vehicles",
+      "description": "Create before parking. Do not delete before finishing parking scenarios.",
+      "item": [
+        {
+          "name": "4.1 List Vehicles",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/vehicles",
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "4.2 Create Vehicle",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/vehicles",
+            "description": "Add vehicle; saves vehicleId.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plate\": \"{{plateNumber}}\",\n  \"size\": \"NORMAL\",\n  \"registrationType\": \"PRIVATE_CARS\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201 || pm.response.code === 200) {",
+                  "  pm.collectionVariables.set('vehicleId', String(pm.response.json().id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.3 Update Vehicle",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/vehicles/{{vehicleId}}",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"color\": \"Black\",\n  \"isElectric\": false\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "4.4 Set Default Vehicle",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/vehicles/{{vehicleId}}/default",
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "5. Garages",
+      "description": "Discovery map APIs",
+      "item": [
+        {
+          "name": "5.1 List Garages",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/client/v1/garages?lat={{lat}}&lng={{lng}}&radiusKm=10&includePeriods=true&page=0&size=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "client",
+                "v1",
+                "garages"
+              ],
+              "query": [
+                {
+                  "key": "lat",
+                  "value": "{{lat}}"
+                },
+                {
+                  "key": "lng",
+                  "value": "{{lng}}"
+                },
+                {
+                  "key": "radiusKm",
+                  "value": "10"
+                },
+                {
+                  "key": "includePeriods",
+                  "value": "true"
+                },
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Nearby garages. Saves first garageId and optional productId."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  const list = j.content || j.items || j;",
+                  "  if (Array.isArray(list) && list.length) {",
+                  "    pm.collectionVariables.set('garageId', String(list[0].id || list[0].garageId));",
+                  "    const products = list[0].products || list[0].pricing || [];",
+                  "    if (products.length && products[0].id) {",
+                  "      pm.collectionVariables.set('productId', String(products[0].id));",
+                  "    }",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.2 Get Garage",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/garages/{{garageId}}",
+            "description": "Garage detail + prices; set productId from response if needed."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  const products = j.products || j.pricing || [];",
+                  "  if (products.length && products[0].id) {",
+                  "    pm.collectionVariables.set('productId', String(products[0].id));",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.3 Directions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/garages/{{garageId}}/directions?originLat={{lat}}&originLng={{lng}}",
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "5.4 Availability",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/garages/{{garageId}}/availability",
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "6. Parking happy path",
+      "description": "Consumer: prepare \u2192 poll active \u2192 pay. Gate entry/exit is Enforcer+Kafka in production. 6.2/6.4 ANPR = compat/test simulator only. Use either 6.4 or 6.5 to end.",
+      "item": [
+        {
+          "name": "6.1 Prepare Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/sessions/prepare",
+            "description": "Select product before arrival.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"garageId\": {{garageId}},\n  \"productId\": {{productId}},\n  \"vehicleId\": {{vehicleId}}\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  pm.collectionVariables.set('sessionId', String(pm.response.json().id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.2 ANPR Check-In (gate)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-SERVICE-TO-SERVICE",
+                "value": "{{serviceSecret}}"
+              }
+            ],
+            "url": "{{baseUrl}}/internal/v1/sessions/check-in",
+            "description": "COMPAT/TEST only. Production: Enforcer gates/check+enter via Kafka. Not called by consumer Flutter. Requires serviceSecret.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plateNumber\": \"{{plateNumber}}\",\n  \"plateCountry\": \"{{plateCountry}}\",\n  \"garageId\": {{garageId}},\n  \"gateId\": \"ENTRY-1\",\n  \"recognizedAt\": \"2026-07-27T10:00:00Z\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const j = pm.response.json();",
+                  "  if (j.id) pm.collectionVariables.set('sessionId', String(j.id));",
+                  "  if (j.sessionId) pm.collectionVariables.set('sessionId', String(j.sessionId));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.3 Active Session",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/sessions/active",
+            "description": "Live session / timer."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200 && pm.response.json().id) {",
+                  "  pm.collectionVariables.set('sessionId', String(pm.response.json().id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.4 ANPR Check-Out (gate)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-SERVICE-TO-SERVICE",
+                "value": "{{serviceSecret}}"
+              }
+            ],
+            "url": "{{baseUrl}}/internal/v1/sessions/check-out",
+            "description": "COMPAT/TEST only. Production: Enforcer Out mode + payment-gated exit via Kafka. Prefer this OR 6.5 (not both).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plateNumber\": \"{{plateNumber}}\",\n  \"plateCountry\": \"{{plateCountry}}\",\n  \"garageId\": {{garageId}},\n  \"gateId\": \"EXIT-1\",\n  \"recognizedAt\": \"2026-07-27T12:00:00Z\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if ((pm.response.code === 200 || pm.response.code === 201) && pm.response.json().invoice) {",
+                  "  pm.collectionVariables.set('invoiceId', String(pm.response.json().invoice.id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.5 End Session (app alternative)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/sessions/{{sessionId}}/end",
+            "description": "App-side end session (alternative to gate check-out)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200 && pm.response.json().invoice) {",
+                  "  pm.collectionVariables.set('invoiceId', String(pm.response.json().invoice.id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.6 Pay Invoice (STUB)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/invoices/{{invoiceId}}/pay",
+            "description": "Stub payment \u2014 always PAID.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"paymentMethod\": \"CARD\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  if (j.paymentId) pm.collectionVariables.set('paymentId', String(j.paymentId));",
+                  "  if (j.id) pm.collectionVariables.set('paymentId', String(j.id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.7 Payment Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/payments/{{paymentId}}",
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "7. History & notifications",
+      "description": "",
+      "item": [
+        {
+          "name": "7.1 Session History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/sessions?page=0&size=20",
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "7.2 List Invoices",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/invoices?page=0&size=20",
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "7.3 Get Invoice",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/invoices/{{invoiceId}}",
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "7.4 List Notifications",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/notifications?page=0&size=20",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  const list = j.content || j.items || j;",
+                  "  if (Array.isArray(list) && list.length && list[0].id) {",
+                  "    pm.collectionVariables.set('notificationId', String(list[0].id));",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.5 Mark Notification Read",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/notifications/{{notificationId}}/read",
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "8. Cleanup (optional)",
+      "description": "Run only after parking scenarios finish.",
+      "item": [
+        {
+          "name": "8.1 Delete Vehicle (optional)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/client/v1/vehicles/{{vehicleId}}",
+            "description": "Optional cleanup \u2014 run after parking scenarios."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "9. Logout",
+      "description": "Always last.",
+      "item": [
+        {
+          "name": "9.1 Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/logout",
+            "description": "Revoke Keycloak session.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Logout 200', function () { pm.response.to.have.status(200); });",
+                  "pm.collectionVariables.unset('access_token');",
+                  "pm.collectionVariables.unset('refresh_token');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

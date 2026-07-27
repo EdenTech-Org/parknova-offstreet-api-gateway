@@ -1,0 +1,13 @@
+# Local SMTP catcher for OTP emails (open-source: https://github.com/axllent/mailpit)
+# SMTP: localhost:1025  |  Web UI: http://localhost:8025
+services:
+  mailpit:
+    image: axllent/mailpit:v1.27
+    container_name: parknova-mailpit
+    ports:
+      - "1025:1025"   # SMTP (matches spring.mail defaults)
+      - "8025:8025"   # Web UI + REST API
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    restart: unless-stopped

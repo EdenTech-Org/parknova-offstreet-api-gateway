@@ -5,9 +5,17 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "parknova")
 public record ParknovaProperties(
         Keycloak keycloak,
-        Otp otp,
-        Mail mail
+        EnforcerKeycloak enforcerKeycloak
 ) {
+    public ParknovaProperties {
+        if (enforcerKeycloak == null) {
+            enforcerKeycloak = new EnforcerKeycloak(
+                    keycloak != null ? keycloak.baseUrl() : "https://keycloak-dev.eden-tech.io",
+                    "eden-crm-sec-users"
+            );
+        }
+    }
+
     public record Keycloak(
             String baseUrl,
             String realm,
@@ -32,9 +40,13 @@ public record ParknovaProperties(
         }
     }
 
-    public record Otp(int length, int ttlMinutes, int maxAttempts) {
-    }
-
-    public record Mail(String from) {
+    public record EnforcerKeycloak(
+            String baseUrl,
+            String realm
+    ) {
+        public String issuerUri() {
+            String base = baseUrl != null && !baseUrl.isBlank() ? baseUrl : null;
+            return (base != null ? base : "") + "/realms/" + realm;
+        }
     }
 }

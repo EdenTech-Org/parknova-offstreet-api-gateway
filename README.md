@@ -1,6 +1,6 @@
 # ParkNova API Gateway
 
-Spring Cloud Gateway MVC with Keycloak-backed **User Account Management** (register, email OTP verification, login, password reset, logout) and JWT protection for downstream routes.
+Spring Cloud Gateway MVC with Keycloak-backed **User Account Management** (register, login, logout) and JWT protection for downstream routes.
 
 ## Stack
 
@@ -9,41 +9,44 @@ Spring Cloud Gateway MVC with Keycloak-backed **User Account Management** (regis
 - Spring Cloud 2023.0.3 (`spring-cloud-starter-gateway-mvc`)
 - Spring Security OAuth2 Resource Server (JWT)
 - Keycloak Admin Client 26.x
-- Spring Mail (OTP delivery)
 
 ## Run locally
 
 ```bash
-cd d:\project\parknova-api-gateway
+cd d:\project\parknova-offstreet-api-gateway
 
 # set secrets / Keycloak
 set KEYCLOAK_BASE_URL=https://keycloak-dev.eden-tech.io
 set KEYCLOAK_REALM=parknova
 set KEYCLOAK_CLIENT_ID=parknova-api-gateway
 set KEYCLOAK_CLIENT_SECRET=<secret-from-keycloak>
-set SPRING_MAIL_HOST=localhost
-set SPRING_MAIL_PORT=1025
 
 mvn spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
 Default port: `8080`.
 
-If SMTP is down, registration still succeeds and the OTP is written to application logs (dev-friendly).
+### Postman (full consumer flow)
 
+Import `docs/postman/ParkNova-API-Gateway.postman_collection.json` and run folders **in order**:
+
+1. Health  
+2. Auth — Register → Login  
+3. Profile — Bootstrap → Me  
+4. Lookups → Vehicles  
+5. Garages  
+6. Parking happy path — Prepare → ANPR check-in → Active → check-out/end → Pay  
+7. History & notifications  
+8. Logout  
+
+Requires gateway `:8080`, mobile-service `:8081`, and offstreet `:8090`. Set `serviceSecret` for ANPR requests.
 ## Auth API
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/auth/register` | Public | Register with username, email, phone, password → sends email OTP |
-| POST | `/auth/verify-email` | Public | `{ "email", "otp" }` → marks email verified in Keycloak |
-| POST | `/auth/resend-otp` | Public | Resend email verification OTP |
-| POST | `/auth/login` | Public | `{ "username", "password" }` → JWT `access_token` + `refresh_token` |
-| POST | `/auth/forgot-password` | Public | Send password-reset OTP to email |
-| POST | `/auth/reset-password` | Public | `{ "email", "otp", "newPassword" }` |
+| POST | `/auth/register` | Public | Create user in Keycloak (ready to log in) |
+| POST | `/auth/login` | Public | `{ "email", "password" }` → JWT `access_token` + `refresh_token` |
 | POST | `/auth/logout` | Public | `{ "refreshToken" }` → revoke session |
-
-Login is rejected until email is verified.
 
 Example register:
 
@@ -52,7 +55,19 @@ POST /auth/register
 {
   "username": "jdoe",
   "email": "jdoe@example.com",
+  "firstName": "John",
+  "lastName": "Doe",
   "phone": "+966500000000",
+  "password": "SecurePass1!"
+}
+```
+
+Example login:
+
+```json
+POST /auth/login
+{
+  "email": "jdoe@example.com",
   "password": "SecurePass1!"
 }
 ```
@@ -110,7 +125,7 @@ Authorization: Bearer <access_token>
    - Access token lifespan: e.g. 5–15 minutes
    - Refresh token / SSO session timeouts as needed
 4. Realm settings → **Email**
-   - Configure SMTP (optional for Keycloak-native mail; gateway OTP uses `spring.mail.*`)
+   - Optional (not used by this gateway anymore)
 
 ### 2. Confidential client `parknova-api-gateway`
 
@@ -129,11 +144,35 @@ Copy the **Client secret** into `KEYCLOAK_CLIENT_SECRET`.
 
 ### 3. Service account roles
 
-Open client → **Service account roles** → assign from client `realm-management`:
+Open client → **Capability config**:
 
-- `manage-users`
-- `view-users`
-- `query-users`
+| Setting | Value |
+|---------|--------|
+| Client authentication | **ON** |
+| Service accounts roles | **ON** |
+| Direct access grants | **ON** (for `/auth/login`) |
+
+Open client → **Client scopes** (or Settings):
+
+| Setting | Value |
+|---------|--------|
+| Full scope allowed | **ON** (required so `realm-management` roles appear on client_credentials tokens) |
+
+Open client → **Service account roles** → **Assign role**:
+
+1. Filter by **clients** (not realm roles)
+2. Select client **`realm-management`**
+3. Assign at least: `manage-users`, `view-users`, `query-users`  
+   (or assign `realm-admin` for full Admin API access)
+
+Verify with:
+
+```powershell
+$env:KEYCLOAK_CLIENT_SECRET = "<secret>"
+.\scripts\check-keycloak-admin.ps1
+```
+
+Restart the gateway after roles change (tokens are cached briefly by the admin client).
 
 (Do not assign broader roles unless required.)
 
@@ -165,7 +204,7 @@ Gateway JWT validation currently only requires a valid signature/issuer — role
 
 ### 7. Authentication / security
 
-- Required actions: ensure **Verify Email** exists (gateway sets `emailVerified` via Admin API after OTP; Keycloak required-action flow is optional)
+- Required actions: leave **Verify Email** Default Action **OFF** (users are created with Email verified = OFF, but without VERIFY_EMAIL required action so login still works)
 - Authentication → **Policies**: set password policy (min length, digits, etc.)
 - Security defenses → **Brute force detection**: **ON**
 
@@ -191,8 +230,6 @@ Admin:   {KEYCLOAK_BASE_URL}/admin/realms/parknova/users
 | `KEYCLOAK_ISSUER_URI` | optional override of issuer |
 | `MOBILE_SERVICE_URI` | `http://localhost:8081` |
 | `OFFSTREET_SERVICE_URI` | `http://localhost:8090` |
-| `SPRING_MAIL_HOST` / `PORT` / `USERNAME` / `PASSWORD` | SMTP for OTP |
-| `MAIL_FROM` | `noreply@parknova.io` |
 
 ### 10. Optional public client `parknova-mobile`
 
@@ -216,5 +253,8 @@ See consumer guide in the mobile service repo:
 
 `parknova-offstreet-mobile-service/docs/MOBILE-INTEGRATION.md`
 
-Postman: `parknova-offstreet-mobile-service/docs/postman/ParkNova-Mobile-Consumer.postman_collection.json`
+Gateway auth Postman (this repo): `docs/postman/ParkNova-API-Gateway.postman_collection.json`  
+(same E2E collection is mirrored in `parknova-offstreet-mobile-service-backend/docs/postman/`)
+
+Mobile consumer Postman: `parknova-offstreet-mobile-service-backend/docs/postman/ParkNova-Mobile-Consumer.postman_collection.json`
 

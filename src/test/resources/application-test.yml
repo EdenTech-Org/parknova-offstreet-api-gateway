@@ -5,17 +5,6 @@ parknova:
     client-id: parknova-api-gateway
     client-secret: test-secret
     jwt-decoder-enabled: false
-  otp:
-    length: 6
-    ttl-minutes: 10
-    max-attempts: 5
-  mail:
-    from: noreply@parknova.io
-
-spring:
-  mail:
-    host: localhost
-    port: 1025
 
 logging:
   level:

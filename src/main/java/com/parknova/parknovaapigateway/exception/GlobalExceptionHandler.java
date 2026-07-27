@@ -33,6 +33,19 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(payload);
     }
 
+    @ExceptionHandler(jakarta.ws.rs.WebApplicationException.class)
+    public ResponseEntity<Map<String, Object>> handleWebApplication(jakarta.ws.rs.WebApplicationException ex) {
+        int remoteStatus = ex.getResponse() != null ? ex.getResponse().getStatus() : 0;
+        if (remoteStatus == 403) {
+            return body(HttpStatus.BAD_GATEWAY,
+                    "Keycloak Admin API returned 403 Forbidden. "
+                            + "Enable Service accounts on client 'parknova-api-gateway' and assign "
+                            + "realm-management roles: manage-users, view-users, query-users.");
+        }
+        return body(HttpStatus.BAD_GATEWAY,
+                "Keycloak Admin API error: HTTP " + remoteStatus);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGeneric(Exception ex) {
         return body(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage() != null ? ex.getMessage() : "Unexpected error");
