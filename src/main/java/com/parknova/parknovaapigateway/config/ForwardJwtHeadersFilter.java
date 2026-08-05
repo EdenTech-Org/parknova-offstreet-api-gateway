@@ -10,6 +10,8 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.function.ServerRequest;
 
+import java.util.List;
+
 /**
  * Inter-service identity bridge: gateway → mobile / enforcer.
  *
@@ -27,6 +29,8 @@ public class ForwardJwtHeadersFilter implements RequestHttpHeadersFilter, Ordere
     public static final String USER_USERNAME = "X-User-Username";
     public static final String USER_EMAIL = "X-User-Email";
     public static final String USER_PHONE = "X-User-Phone";
+    public static final String ORGANIZATION_ID = "X-Organization-Id";
+    public static final String ACTOR_NAME = "X-Actor-Name";
     public static final String OFFICER_SUB = "X-Officer-Sub";
     public static final String OFFICER_USERNAME = "X-Officer-Username";
     public static final String OFFICER_EMAIL = "X-Officer-Email";
@@ -61,6 +65,7 @@ public class ForwardJwtHeadersFilter implements RequestHttpHeadersFilter, Ordere
         String username = firstNonBlank(jwt.getClaimAsString("preferred_username"), jwt.getClaimAsString("username"));
         String email = jwt.getClaimAsString("email");
         String phone = firstNonBlank(jwt.getClaimAsString("phone"), jwt.getClaimAsString("phone_number"));
+        String organizationId = claimAsString(jwt, "organizationId");
 
         if (enforcer) {
             if (sub != null && !sub.isBlank()) {
@@ -87,6 +92,28 @@ public class ForwardJwtHeadersFilter implements RequestHttpHeadersFilter, Ordere
         if (phone != null) {
             headers.set(USER_PHONE, phone);
         }
+        if (organizationId != null && !organizationId.isBlank()) {
+            headers.set(ORGANIZATION_ID, organizationId);
+        }
+        String actor = firstNonBlank(email, username);
+        if (actor != null) {
+            headers.set(ACTOR_NAME, actor);
+        }
+    }
+
+    private static String claimAsString(Jwt jwt, String name) {
+        String asString = jwt.getClaimAsString(name);
+        if (asString != null && !asString.isBlank()) {
+            return asString;
+        }
+        Object raw = jwt.getClaim(name);
+        if (raw == null) {
+            return null;
+        }
+        if (raw instanceof List<?> list && !list.isEmpty()) {
+            return String.valueOf(list.getFirst());
+        }
+        return String.valueOf(raw);
     }
 
     @Override

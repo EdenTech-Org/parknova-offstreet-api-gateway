@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: parknova-offstreet-api-gateway
+  labels:
+    app: parknova-offstreet-api-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: parknova-offstreet-api-gateway
+  template:
+    metadata:
+      labels:
+        app: parknova-offstreet-api-gateway
+    spec:
+      containers:
+        - name: api-gateway
+          image: parknova-offstreet-api-gateway:latest
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: parknova-offstreet-api-gateway-config
+            - secretRef:
+                name: parknova-offstreet-api-gateway-secret
+                optional: true
+          # Ensures Bearer reaches mobile even if image ENTRYPOINT is overridden
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Djdk.httpclient.allowRestrictedHeaders=authorization,host"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 40
+            periodSeconds: 20

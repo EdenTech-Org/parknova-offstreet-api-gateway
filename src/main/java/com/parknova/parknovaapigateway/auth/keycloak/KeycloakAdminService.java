@@ -6,15 +6,19 @@ import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 import org.keycloak.admin.client.CreatedResponseUtil;
 import org.keycloak.admin.client.Keycloak;
+import org.keycloak.admin.client.resource.RealmResource;
 import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.admin.client.resource.UsersResource;
 import org.keycloak.representations.idm.CredentialRepresentation;
+import org.keycloak.representations.idm.RoleRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
+import org.keycloak.representations.idm.UserSessionRepresentation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -24,6 +28,15 @@ import java.util.function.Supplier;
 public class KeycloakAdminService {
 
     private static final Logger log = LoggerFactory.getLogger(KeycloakAdminService.class);
+
+    public static final String ROLE_SYSTEM_ADMIN = "SYSTEM_ADMIN";
+    public static final String ATTR_ORGANIZATION_ID = "organizationId";
+    public static final String ATTR_ORGANIZATION_NAME = "organizationName";
+    public static final String ATTR_INVITE_TOKEN = "inviteToken";
+    public static final String ATTR_INVITE_EXPIRES_AT = "inviteExpiresAt";
+    public static final String ATTR_INVITE_KIND = "inviteKind";
+    public static final String INVITE_KIND_SETUP = "SETUP";
+    public static final String INVITE_KIND_RESET = "RESET";
 
     private static final String FORBIDDEN_HINT =
             "Keycloak Admin API returned 403 Forbidden for client '%s'. "
@@ -100,6 +113,146 @@ public class KeycloakAdminService {
         }
     }
 
+    /**
+     * Creates a tenant system admin with no password. Invite tokens are stored in org-admin DB.
+     */
+    public ProvisionResult provisionTenantAdmin(String email, long organizationId, String organizationName) {
+        String normalizedEmail = email.trim().toLowerCase();
+        Optional<UserRepresentation> existing = findByEmail(normalizedEmail);
+        if (existing.isPresent()) {
+            UserRepresentation user = existing.get();
+            if (hasRealmRole(user.getId(), ROLE_SYSTEM_ADMIN)
+                    && organizationIdEquals(user, organizationId)
+                    && !hasPasswordCredential(user.getId())) {
+                ensureOrgAttributes(user.getId(), organizationId, organizationName);
+                return new ProvisionResult(user.getId(), false);
+            }
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "Email already registered in Keycloak; cannot provision tenant admin");
+        }
+
+        UserRepresentation user = new UserRepresentation();
+        user.setEnabled(true);
+        user.setUsername(normalizedEmail);
+        user.setEmail(normalizedEmail);
+        user.setFirstName(organizationName != null ? organizationName : "Tenant");
+        user.setLastName("Admin");
+        user.setEmailVerified(false);
+        user.setRequiredActions(List.of());
+        user.setCredentials(List.of());
+        user.setAttributes(orgAttributes(organizationId, organizationName));
+
+        UsersResource users = users();
+        try (Response response = adminCall(() -> users.create(user))) {
+            int status = response.getStatus();
+            if (status == 201) {
+                String userId = CreatedResponseUtil.getCreatedId(response);
+                assignRealmRole(userId, ROLE_SYSTEM_ADMIN);
+                log.info("Provisioned tenant admin userId={} organizationId={} email={}",
+                        userId, organizationId, normalizedEmail);
+                return new ProvisionResult(userId, true);
+            }
+            if (status == 409) {
+                throw new ApiException(HttpStatus.CONFLICT, "User already exists in Keycloak");
+            }
+            if (status == 403) {
+                throw forbidden();
+            }
+            throw new ApiException(HttpStatus.BAD_GATEWAY,
+                    "Failed to provision tenant admin in Keycloak: HTTP " + status);
+        }
+    }
+
+    public void ensureOrgAttributes(String userId, long organizationId, String organizationName) {
+        UserResource resource = users().get(userId);
+        UserRepresentation user = adminCall(resource::toRepresentation);
+        Map<String, List<String>> attrs = user.getAttributes() != null
+                ? new HashMap<>(user.getAttributes())
+                : new HashMap<>();
+        attrs.put(ATTR_ORGANIZATION_ID, List.of(String.valueOf(organizationId)));
+        if (organizationName != null && !organizationName.isBlank()) {
+            attrs.put(ATTR_ORGANIZATION_NAME, List.of(organizationName));
+        }
+        // Clear legacy invite attrs if present from older deployments
+        attrs.remove(ATTR_INVITE_TOKEN);
+        attrs.remove(ATTR_INVITE_EXPIRES_AT);
+        attrs.remove(ATTR_INVITE_KIND);
+        user.setAttributes(attrs);
+        adminCall(() -> {
+            resource.update(user);
+            return null;
+        });
+    }
+
+    public void activateWithPassword(String userId, String password) {
+        UserResource resource = users().get(userId);
+        CredentialRepresentation credential = new CredentialRepresentation();
+        credential.setType(CredentialRepresentation.PASSWORD);
+        credential.setTemporary(false);
+        credential.setValue(password);
+
+        adminCall(() -> {
+            resource.resetPassword(credential);
+            UserRepresentation user = resource.toRepresentation();
+            Map<String, List<String>> attrs = user.getAttributes() != null
+                    ? new HashMap<>(user.getAttributes())
+                    : new HashMap<>();
+            attrs.remove(ATTR_INVITE_TOKEN);
+            attrs.remove(ATTR_INVITE_EXPIRES_AT);
+            attrs.remove(ATTR_INVITE_KIND);
+            user.setAttributes(attrs);
+            user.setEnabled(true);
+            user.setEmailVerified(true);
+            user.setRequiredActions(List.of());
+            resource.update(user);
+            return null;
+        });
+        log.info("Activated tenant admin userId={}", userId);
+    }
+
+    public void changePassword(String userId, String newPassword) {
+        CredentialRepresentation credential = new CredentialRepresentation();
+        credential.setType(CredentialRepresentation.PASSWORD);
+        credential.setTemporary(false);
+        credential.setValue(newPassword);
+        adminCall(() -> {
+            users().get(userId).resetPassword(credential);
+            return null;
+        });
+    }
+
+    public void logoutOtherSessions(String userId, String keepSessionId) {
+        UserResource resource = users().get(userId);
+        List<UserSessionRepresentation> sessions = adminCall(resource::getUserSessions);
+        if (sessions == null || sessions.isEmpty()) {
+            return;
+        }
+        RealmResource realm = realm();
+        for (UserSessionRepresentation session : sessions) {
+            if (keepSessionId != null && keepSessionId.equals(session.getId())) {
+                continue;
+            }
+            try {
+                adminCall(() -> {
+                    realm.deleteSession(session.getId(), false);
+                    return null;
+                });
+            } catch (RuntimeException ex) {
+                log.warn("Failed to delete Keycloak session {} for user {}: {}",
+                        session.getId(), userId, ex.getMessage());
+            }
+        }
+    }
+
+    public boolean hasRealmRole(String userId, String roleName) {
+        List<RoleRepresentation> roles = adminCall(
+                () -> users().get(userId).roles().realmLevel().listAll());
+        if (roles == null) {
+            return false;
+        }
+        return roles.stream().anyMatch(r -> roleName.equals(r.getName()));
+    }
+
     public Optional<UserRepresentation> findByEmail(String email) {
         List<UserRepresentation> users = adminCall(
                 () -> users().searchByEmail(email.trim().toLowerCase(), true));
@@ -121,8 +274,65 @@ public class KeycloakAdminService {
                 .findFirst();
     }
 
+    public Optional<UserRepresentation> findById(String userId) {
+        try {
+            return Optional.ofNullable(adminCall(() -> users().get(userId).toRepresentation()));
+        } catch (WebApplicationException ex) {
+            if (ex.getResponse() != null && ex.getResponse().getStatus() == 404) {
+                return Optional.empty();
+            }
+            throw ex;
+        }
+    }
+
+    public boolean hasPasswordCredential(String userId) {
+        List<CredentialRepresentation> credentials = adminCall(() -> users().get(userId).credentials());
+        if (credentials == null) {
+            return false;
+        }
+        return credentials.stream()
+                .anyMatch(c -> CredentialRepresentation.PASSWORD.equals(c.getType()));
+    }
+
+    private void assignRealmRole(String userId, String roleName) {
+        RoleRepresentation role = adminCall(() -> realm().roles().get(roleName).toRepresentation());
+        adminCall(() -> {
+            users().get(userId).roles().realmLevel().add(List.of(role));
+            return null;
+        });
+    }
+
+    private Map<String, List<String>> orgAttributes(long organizationId, String organizationName) {
+        Map<String, List<String>> attrs = new HashMap<>();
+        attrs.put(ATTR_ORGANIZATION_ID, List.of(String.valueOf(organizationId)));
+        if (organizationName != null && !organizationName.isBlank()) {
+            attrs.put(ATTR_ORGANIZATION_NAME, List.of(organizationName));
+        }
+        return attrs;
+    }
+
+    private boolean organizationIdEquals(UserRepresentation user, long organizationId) {
+        String raw = firstAttr(user, ATTR_ORGANIZATION_ID);
+        return raw != null && raw.equals(String.valueOf(organizationId));
+    }
+
+    public static String firstAttr(UserRepresentation user, String key) {
+        if (user.getAttributes() == null) {
+            return null;
+        }
+        List<String> values = user.getAttributes().get(key);
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        return values.getFirst();
+    }
+
     private UsersResource users() {
-        return keycloak.realm(properties.keycloak().realm()).users();
+        return realm().users();
+    }
+
+    private RealmResource realm() {
+        return keycloak.realm(properties.keycloak().realm());
     }
 
     private <T> T adminCall(Supplier<T> call) {
@@ -140,5 +350,8 @@ public class KeycloakAdminService {
         String clientId = properties.keycloak().clientId();
         log.error("Keycloak Admin API forbidden for client={}", clientId);
         return new ApiException(HttpStatus.BAD_GATEWAY, FORBIDDEN_HINT.formatted(clientId));
+    }
+
+    public record ProvisionResult(String userId, boolean created) {
     }
 }

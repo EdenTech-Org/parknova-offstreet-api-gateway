@@ -5,7 +5,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "parknova")
 public record ParknovaProperties(
         Keycloak keycloak,
-        EnforcerKeycloak enforcerKeycloak
+        EnforcerKeycloak enforcerKeycloak,
+        Portal portal,
+        Mail mail,
+        String serviceToServiceSecret,
+        String orgAdminBaseUrl
 ) {
     public ParknovaProperties {
         if (enforcerKeycloak == null) {
@@ -13,6 +17,18 @@ public record ParknovaProperties(
                     keycloak != null ? keycloak.baseUrl() : "https://keycloak-dev.eden-tech.io",
                     "eden-crm-sec-users"
             );
+        }
+        if (portal == null) {
+            portal = new Portal("http://localhost:3000", 72);
+        }
+        if (mail == null) {
+            mail = new Mail(false, "noreply@parknova.local");
+        }
+        if (serviceToServiceSecret == null || serviceToServiceSecret.isBlank()) {
+            serviceToServiceSecret = "CHANGE_ME";
+        }
+        if (orgAdminBaseUrl == null || orgAdminBaseUrl.isBlank()) {
+            orgAdminBaseUrl = "http://localhost:8091";
         }
     }
 
@@ -47,6 +63,34 @@ public record ParknovaProperties(
         public String issuerUri() {
             String base = baseUrl != null && !baseUrl.isBlank() ? baseUrl : null;
             return (base != null ? base : "") + "/realms/" + realm;
+        }
+    }
+
+    public record Portal(
+            String baseUrl,
+            Integer inviteTtlHours
+    ) {
+        public Portal {
+            if (baseUrl == null || baseUrl.isBlank()) {
+                baseUrl = "http://localhost:3000";
+            }
+            if (inviteTtlHours == null || inviteTtlHours <= 0) {
+                inviteTtlHours = 72;
+            }
+        }
+    }
+
+    public record Mail(
+            Boolean enabled,
+            String from
+    ) {
+        public Mail {
+            if (enabled == null) {
+                enabled = false;
+            }
+            if (from == null || from.isBlank()) {
+                from = "noreply@parknova.local";
+            }
         }
     }
 }

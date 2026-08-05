@@ -5,6 +5,14 @@ parknova:
     client-id: ${KEYCLOAK_CLIENT_ID:parknova-api-gateway}
     client-secret: ${KEYCLOAK_CLIENT_SECRET}
     jwt-decoder-enabled: true
+  portal:
+    base-url: ${PORTAL_BASE_URL}
+    invite-ttl-hours: ${PORTAL_INVITE_TTL_HOURS:72}
+  mail:
+    enabled: ${MAIL_ENABLED:true}
+    from: ${MAIL_FROM:noreply@parknova.local}
+  service-to-service-secret: ${SERVICE_TO_SERVICE_SECRET}
+  org-admin-base-url: ${ORG_ADMIN_SERVICE_URI:http://parknova-org-admin:8091}
 
 logging:
   level:

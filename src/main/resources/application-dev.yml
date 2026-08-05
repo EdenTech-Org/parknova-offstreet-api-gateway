@@ -1,29 +1,85 @@
 parknova:
+
   keycloak:
+
     base-url: ${KEYCLOAK_BASE_URL:https://keycloak-dev.eden-tech.io}
+
     realm: ${KEYCLOAK_REALM:parknova}
+
     client-id: ${KEYCLOAK_CLIENT_ID:parknova-api-gateway}
+
     client-secret: ${KEYCLOAK_CLIENT_SECRET:CHANGE_ME}
+
     jwt-decoder-enabled: true
+
   enforcer-keycloak:
+
     base-url: ${ENFORCER_KEYCLOAK_BASE_URL:${KEYCLOAK_BASE_URL:https://keycloak-dev.eden-tech.io}}
+
     realm: ${ENFORCER_KEYCLOAK_REALM:eden-crm-sec-users}
 
+  portal:
+
+    base-url: ${PORTAL_BASE_URL:http://localhost:3000}
+
+    invite-ttl-hours: 72
+
+  mail:
+
+    enabled: ${MAIL_ENABLED:false}
+
+    from: ${MAIL_FROM:noreply@parknova.local}
+
+  service-to-service-secret: ${SERVICE_TO_SERVICE_SECRET:local-dev-secret}
+  org-admin-base-url: ${ORG_ADMIN_SERVICE_URI:http://localhost:8091}
+
+
+
 spring:
+
   cloud:
+
     gateway:
+
       mvc:
+
         routes:
+
           - id: parknova-offstreet-mobile
+
             uri: ${MOBILE_SERVICE_URI:http://localhost:8081}
+
             predicates:
-              - Path=/client/**,/internal/**,/mobile/**,/enforcer/**
+
+              - Path=/client/**,/internal/v1/**,/mobile/**,/enforcer/**
+
           - id: parknova-offstreet-service
+
             uri: ${OFFSTREET_SERVICE_URI:http://localhost:8090}
+
             predicates:
+
               - Path=/api/v1/**,/api/external/**,/customer/**
 
+          - id: parknova-org-admin
+
+            uri: ${ORG_ADMIN_SERVICE_URI:http://localhost:8091}
+
+            predicates:
+
+              - Path=/org-admin/**
+
+            filters:
+
+              - StripPrefix=1
+
+
+
 logging:
+
   level:
+
     com.parknova.parknovaapigateway: DEBUG
+
     org.springframework.security: DEBUG
+

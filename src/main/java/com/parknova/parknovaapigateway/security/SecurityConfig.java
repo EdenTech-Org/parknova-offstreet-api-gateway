@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationManagerResolver;
@@ -15,9 +16,12 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationProvider;
+import org.springframework.security.authentication.AbstractAuthenticationToken;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 
@@ -52,8 +56,16 @@ public class SecurityConfig {
             @Qualifier("jwtDecoder") JwtDecoder jwtDecoder,
             @Qualifier("enforcerJwtDecoder") JwtDecoder enforcerJwtDecoder
     ) {
-        AuthenticationManager consumer = new ProviderManager(new JwtAuthenticationProvider(jwtDecoder));
-        AuthenticationManager enforcer = new ProviderManager(new JwtAuthenticationProvider(enforcerJwtDecoder));
+        Converter<Jwt, AbstractAuthenticationToken> roles = KeycloakRealmRoleConverter.authenticationConverter();
+
+        JwtAuthenticationProvider consumerProvider = new JwtAuthenticationProvider(jwtDecoder);
+        consumerProvider.setJwtAuthenticationConverter(roles);
+
+        JwtAuthenticationProvider enforcerProvider = new JwtAuthenticationProvider(enforcerJwtDecoder);
+        enforcerProvider.setJwtAuthenticationConverter(roles);
+
+        AuthenticationManager consumer = new ProviderManager(consumerProvider);
+        AuthenticationManager enforcer = new ProviderManager(enforcerProvider);
         return request -> {
             String path = request.getRequestURI();
             if (path != null && path.startsWith("/enforcer/")) {
@@ -64,9 +76,15 @@ public class SecurityConfig {
     }
 
     @Bean
+    public OrgAdminTenantFilter orgAdminTenantFilter() {
+        return new OrgAdminTenantFilter();
+    }
+
+    @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
-            ObjectProvider<AuthenticationManagerResolver<HttpServletRequest>> authenticationManagerResolver
+            ObjectProvider<AuthenticationManagerResolver<HttpServletRequest>> authenticationManagerResolver,
+            OrgAdminTenantFilter orgAdminTenantFilter
     ) throws Exception {
         http.csrf(AbstractHttpConfigurer::disable);
         http.exceptionHandling(ex -> ex
@@ -75,6 +93,7 @@ public class SecurityConfig {
         http.authorizeHttpRequests(auth -> auth
                 .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers(PublicEndpoints.getEndpoints()).permitAll()
+                .requestMatchers("/org-admin/**").hasRole("SYSTEM_ADMIN")
                 .anyRequest().authenticated()
         );
         AuthenticationManagerResolver<HttpServletRequest> resolver = authenticationManagerResolver.getIfAvailable();
@@ -84,6 +103,7 @@ public class SecurityConfig {
             http.oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> {
             }));
         }
+        http.addFilterAfter(orgAdminTenantFilter, BearerTokenAuthenticationFilter.class);
         http.sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
         );

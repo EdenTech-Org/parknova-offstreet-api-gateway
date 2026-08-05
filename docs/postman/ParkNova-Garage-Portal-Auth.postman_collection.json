@@ -1,0 +1,609 @@
+{
+  "info": {
+    "_postman_id": "parknova-garage-portal-auth",
+    "name": "ParkNova Garage Portal Auth (Tenant Admin)",
+    "description": "Tenant system-admin invite → setup password → login → org-admin APIs via gateway → change password.\n\n## Run order\n1. Health\n2. Provision (or create org)\n3. Copy setupToken from gateway logs when MAIL_ENABLED=false\n4. Setup preview → Setup password\n5. Portal login\n6. Org-admin APIs under /org-admin/api/v1/** (Bearer token)\n7. Change password / forgot-reset (optional)\n8. Logout\n\n## Prerequisites\n- Gateway :8080, org-admin :8091, Keycloak parknova realm\n- serviceSecret matches SERVICE_TO_SERVICE_SECRET\n- See docs/GARAGE-PORTAL-AUTH.md",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "serviceSecret", "value": "local-dev-secret" },
+    { "key": "organizationId", "value": "42" },
+    { "key": "organizationName", "value": "Acme Parking" },
+    { "key": "orgCode", "value": "1001" },
+    { "key": "email", "value": "admin@acme.example" },
+    { "key": "password", "value": "SecurePass1!" },
+    { "key": "newPassword", "value": "NewSecure2!" },
+    { "key": "setupToken", "value": "" },
+    { "key": "resetToken", "value": "" },
+    { "key": "access_token", "value": "" },
+    { "key": "refresh_token", "value": "" },
+    { "key": "contactPerson", "value": "Jane Doe" },
+    { "key": "telephoneCountryCode", "value": "+966" },
+    { "key": "telephoneNumber", "value": "500000000" },
+    { "key": "taxNumber", "value": "1234567890" },
+    { "key": "address", "value": "Riyadh" }
+  ],
+  "item": [
+    {
+      "name": "0. Health",
+      "item": [
+        {
+          "name": "0.1 Gateway health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/health",
+            "description": "Gateway health check"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "1. Provision tenant admin",
+      "description": "Option A: call provision directly after the org exists.\nOption B: create organization in offstreet, then run 1.1 with the returned org id.\n\nWhen mail is disabled, copy the setup link token from gateway logs into `setupToken`.",
+      "item": [
+        {
+          "name": "1.1 Provision (service-to-service)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-SERVICE-TO-SERVICE", "value": "{{serviceSecret}}" }
+            ],
+            "url": "{{baseUrl}}/internal/auth/tenant-admin/provision",
+            "description": "Creates Keycloak user with SYSTEM_ADMIN + organizationId, no password. Sends/logs invite link.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"organizationId\": {{organizationId}},\n  \"email\": \"{{email}}\",\n  \"organizationName\": \"{{organizationName}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Provisioned 201', function () { pm.response.to.have.status(201); });",
+                  "const j = pm.response.json();",
+                  "if (j.organizationId) { pm.collectionVariables.set('organizationId', String(j.organizationId)); }",
+                  "if (j.email) { pm.collectionVariables.set('email', j.email); }",
+                  "console.log('Copy setupToken from gateway logs (MAIL_ENABLED=false) into collection variable setupToken');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.2 Create organization (triggers provision)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/v1/organizations",
+            "description": "Creates org in offstreet. Then call 1.1 Provision with the returned id (offstreet does not auto-provision).\n\nUse a unique orgCode/email each run.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{orgCode}}\",\n  \"name\": \"{{organizationName}}\",\n  \"contactPerson\": \"{{contactPerson}}\",\n  \"telephoneCountryCode\": \"{{telephoneCountryCode}}\",\n  \"telephoneNumber\": \"{{telephoneNumber}}\",\n  \"email\": \"{{email}}\",\n  \"taxNumber\": \"{{taxNumber}}\",\n  \"address\": \"{{address}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Org created 201', function () { pm.response.to.have.status(201); });",
+                  "const j = pm.response.json();",
+                  "if (j.id) { pm.collectionVariables.set('organizationId', String(j.id)); }",
+                  "console.log('Org id=', j.id, '— next run 1.1 Provision with this organizationId, then copy setupToken from gateway logs');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.3 Resend invite",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/auth/portal/resend-invite",
+            "description": "Always returns a generic success message. Issues a new setup token if the account is still pending password.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Generic success', function () { pm.response.to.have.status(200); });",
+                  "console.log('If pending, copy new setupToken from gateway logs');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Setup password (US-02)",
+      "description": "Set collection variable `setupToken` from the invite email or gateway log link (`.../setup?token=...`).",
+      "item": [
+        {
+          "name": "2.1 Preview setup link",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/portal/setup?token={{setupToken}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "portal", "setup"],
+              "query": [
+                { "key": "token", "value": "{{setupToken}}" }
+              ]
+            },
+            "description": "Returns read-only email, organizationName, organizationId, kind=SETUP"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Setup preview 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Email present', function () { pm.expect(j.email).to.eql(pm.collectionVariables.get('email')); });",
+                  "pm.test('Kind SETUP', function () { pm.expect(j.kind).to.eql('SETUP'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.2 Setup password (activate)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/auth/portal/setup-password",
+            "description": "Activates account; invalidates invite token.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{setupToken}}\",\n  \"password\": \"{{password}}\",\n  \"confirmPassword\": \"{{password}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Activated 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.3 Preview used/expired link (expect 400)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/portal/setup?token={{setupToken}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "portal", "setup"],
+              "query": [
+                { "key": "token", "value": "{{setupToken}}" }
+              ]
+            },
+            "description": "After successful setup, the same token should fail."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Invalid/used link 400', function () { pm.response.to.have.status(400); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Portal login (US-03)",
+      "item": [
+        {
+          "name": "3.1 Login (wrong password — expect 401)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/auth/portal/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"WrongPass1!\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Unauthorized 401', function () { pm.response.to.have.status(401); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Generic message', function () {",
+                  "  pm.expect(String(j.message || '').toLowerCase()).to.include('incorrect');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.2 Portal login",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/auth/portal/login",
+            "description": "Stores access_token / refresh_token. Decodes JWT and checks organizationId + SYSTEM_ADMIN.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('access_token', j.access_token);",
+                  "pm.collectionVariables.set('refresh_token', j.refresh_token);",
+                  "function decodeJwt(token) {",
+                  "  const payload = token.split('.')[1];",
+                  "  const json = Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString();",
+                  "  return JSON.parse(json);",
+                  "}",
+                  "const claims = decodeJwt(j.access_token);",
+                  "console.log('JWT claims organizationId=', claims.organizationId, 'roles=', claims.realm_access && claims.realm_access.roles);",
+                  "pm.test('JWT has organizationId', function () {",
+                  "  pm.expect(claims.organizationId).to.exist;",
+                  "  pm.expect(String(claims.organizationId)).to.eql(String(pm.collectionVariables.get('organizationId')));",
+                  "});",
+                  "pm.test('JWT has SYSTEM_ADMIN role', function () {",
+                  "  const roles = (claims.realm_access && claims.realm_access.roles) || [];",
+                  "  pm.expect(roles).to.include('SYSTEM_ADMIN');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Change password (US-04)",
+      "item": [
+        {
+          "name": "4.1 Change password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": "{{baseUrl}}/auth/portal/change-password",
+            "description": "Requires Bearer token. Updates collection password vars so subsequent login uses the new password.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{password}}\",\n  \"newPassword\": \"{{newPassword}}\",\n  \"confirmPassword\": \"{{newPassword}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Password changed 200', function () { pm.response.to.have.status(200); });",
+                  "const oldPw = pm.collectionVariables.get('password');",
+                  "const newPw = pm.collectionVariables.get('newPassword');",
+                  "pm.collectionVariables.set('password', newPw);",
+                  "pm.collectionVariables.set('newPassword', oldPw);",
+                  "console.log('Rotated password vars: password is now the new password');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.2 Login with new password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/auth/portal/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('access_token', j.access_token);",
+                  "pm.collectionVariables.set('refresh_token', j.refresh_token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Forgot / reset password",
+      "description": "Copy `resetToken` from gateway logs (`.../reset-password?token=...`) when mail is disabled.",
+      "item": [
+        {
+          "name": "5.1 Forgot password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/auth/portal/forgot-password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Generic success', function () { pm.response.to.have.status(200); });",
+                  "console.log('Copy resetToken from gateway logs into resetToken');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.2 Reset password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/auth/portal/reset-password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{resetToken}}\",\n  \"password\": \"{{password}}\",\n  \"confirmPassword\": \"{{password}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Reset 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Org-admin APIs (via gateway)",
+      "description": "All org-admin endpoints are under /org-admin/** with portal Bearer token.\norganizationId is taken from the JWT (optional to pass as query; mismatch → 403).\nRequires org-admin running on :8091 and ORG_ADMIN_SERVICE_URI.",
+      "item": [
+        {
+          "name": "6.1 Dashboard summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": "{{baseUrl}}/org-admin/api/v1/dashboard/summary"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Dashboard 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.2 List permanent users",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/org-admin/api/v1/permanent-users?page=0&size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["org-admin", "api", "v1", "permanent-users"],
+              "query": [
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "20" }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "6.3 List patterns",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": "{{baseUrl}}/org-admin/api/v1/patterns"
+          },
+          "response": []
+        },
+        {
+          "name": "6.4 List visitor bookings",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": "{{baseUrl}}/org-admin/api/v1/visitor-bookings"
+          },
+          "response": []
+        },
+        {
+          "name": "6.5 List alerts",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": "{{baseUrl}}/org-admin/api/v1/alerts"
+          },
+          "response": []
+        },
+        {
+          "name": "6.6 Search",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/org-admin/api/v1/search?q=test",
+              "host": ["{{baseUrl}}"],
+              "path": ["org-admin", "api", "v1", "search"],
+              "query": [
+                { "key": "q", "value": "test" }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "6.7 Audit logs",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": "{{baseUrl}}/org-admin/api/v1/audit-logs"
+          },
+          "response": []
+        },
+        {
+          "name": "6.8 Reject wrong organizationId (expect 403)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/org-admin/api/v1/dashboard/summary?organizationId=999999",
+              "host": ["{{baseUrl}}"],
+              "path": ["org-admin", "api", "v1", "dashboard", "summary"],
+              "query": [
+                { "key": "organizationId", "value": "999999" }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Forbidden 403', function () { pm.response.to.have.status(403); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7. Logout",
+      "item": [
+        {
+          "name": "7.1 Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/auth/logout",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Logout 200', function () { pm.response.to.have.status(200); });",
+                  "pm.collectionVariables.unset('access_token');",
+                  "pm.collectionVariables.unset('refresh_token');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

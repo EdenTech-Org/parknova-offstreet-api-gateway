@@ -5,6 +5,14 @@ parknova:
     client-id: parknova-api-gateway
     client-secret: test-secret
     jwt-decoder-enabled: false
+  portal:
+    base-url: http://localhost:3000
+    invite-ttl-hours: 72
+  mail:
+    enabled: false
+    from: noreply@parknova.local
+  service-to-service-secret: test-secret
+  org-admin-base-url: http://localhost:8091
 
 logging:
   level:

@@ -31,14 +31,18 @@ public class GatewayUriEnvironmentPostProcessor implements EnvironmentPostProces
 
     static final String MOBILE = "MOBILE_SERVICE_URI";
     static final String OFFSTREET = "OFFSTREET_SERVICE_URI";
+    static final String ORG_ADMIN = "ORG_ADMIN_SERVICE_URI";
     static final String DEFAULT_MOBILE = "http://localhost:8081";
     static final String DEFAULT_OFFSTREET = "http://localhost:8090";
+    static final String DEFAULT_ORG_ADMIN = "http://localhost:8091";
 
     /** Direct Spring property overrides sometimes set in K8s without scheme. */
     static final String ROUTE0_URI = "spring.cloud.gateway.mvc.routes[0].uri";
     static final String ROUTE1_URI = "spring.cloud.gateway.mvc.routes[1].uri";
+    static final String ROUTE2_URI = "spring.cloud.gateway.mvc.routes[2].uri";
     static final String ROUTE0_URI_ENV = "SPRING_CLOUD_GATEWAY_MVC_ROUTES_0_URI";
     static final String ROUTE1_URI_ENV = "SPRING_CLOUD_GATEWAY_MVC_ROUTES_1_URI";
+    static final String ROUTE2_URI_ENV = "SPRING_CLOUD_GATEWAY_MVC_ROUTES_2_URI";
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
@@ -47,19 +51,25 @@ public class GatewayUriEnvironmentPostProcessor implements EnvironmentPostProces
         String mobile = normalize(firstNonBlank(environment, MOBILE, ROUTE0_URI, ROUTE0_URI_ENV), DEFAULT_MOBILE);
         String offstreet = normalize(
                 firstNonBlank(environment, OFFSTREET, ROUTE1_URI, ROUTE1_URI_ENV), DEFAULT_OFFSTREET);
+        String orgAdmin = normalize(
+                firstNonBlank(environment, ORG_ADMIN, ROUTE2_URI, ROUTE2_URI_ENV), DEFAULT_ORG_ADMIN);
 
         Map<String, Object> fixes = new LinkedHashMap<>();
         // Env keys used by application.yml placeholders
         fixes.put(MOBILE, mobile);
         fixes.put(OFFSTREET, offstreet);
+        fixes.put(ORG_ADMIN, orgAdmin);
         // Force concrete route URIs so empty / scheme-less overrides cannot crash Gateway MVC
         fixes.put(ROUTE0_URI, mobile);
         fixes.put(ROUTE1_URI, offstreet);
+        fixes.put(ROUTE2_URI, orgAdmin);
         fixes.put(ROUTE0_URI_ENV, mobile);
         fixes.put(ROUTE1_URI_ENV, offstreet);
+        fixes.put(ROUTE2_URI_ENV, orgAdmin);
 
         environment.getPropertySources().addFirst(new MapPropertySource("gatewayUriDefaults", fixes));
         LOG.info(() -> "Gateway route URIs normalized: mobile=" + mobile + " offstreet=" + offstreet
+                + " orgAdmin=" + orgAdmin
                 + " jdk.allowRestrictedHeaders=" + System.getProperty(JDK_ALLOW_RESTRICTED_HEADERS));
     }
 

@@ -46,6 +46,30 @@ class ForwardJwtHeadersFilterTest {
         assertThat(out.getFirst(ForwardJwtHeadersFilter.USER_SUB)).isEqualTo("user-sub-1");
         assertThat(out.getFirst(ForwardJwtHeadersFilter.USER_USERNAME)).isEqualTo("jdoe");
         assertThat(out.getFirst(ForwardJwtHeadersFilter.OFFICER_SUB)).isNull();
+        assertThat(out.getFirst(ForwardJwtHeadersFilter.ORGANIZATION_ID)).isNull();
+    }
+
+    @Test
+    void consumerPath_setsOrganizationIdWhenPresent() {
+        Jwt jwt = Jwt.withTokenValue("access-token-value")
+                .header("alg", "none")
+                .subject("admin-sub")
+                .claim("preferred_username", "admin@acme.example")
+                .claim("email", "admin@acme.example")
+                .claim("organizationId", "42")
+                .issuedAt(Instant.now())
+                .expiresAt(Instant.now().plusSeconds(60))
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt));
+
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest("GET", "/api/v1/organizations/42");
+        ServerRequest serverRequest = ServerRequest.create(servletRequest, List.of());
+
+        HttpHeaders out = filter.apply(new HttpHeaders(), serverRequest);
+
+        assertThat(out.getFirst(ForwardJwtHeadersFilter.ORGANIZATION_ID)).isEqualTo("42");
+        assertThat(out.getFirst(ForwardJwtHeadersFilter.USER_EMAIL)).isEqualTo("admin@acme.example");
+        assertThat(out.getFirst(ForwardJwtHeadersFilter.ACTOR_NAME)).isEqualTo("admin@acme.example");
     }
 
     @Test
