@@ -21,12 +21,12 @@ public class PortalInviteMailer {
         this.mailSender = mailSender;
     }
 
-    public void sendSetupInvite(String toEmail, String organizationName, String setupUrl) {
+    public void sendSetupInvite(String toEmail, String setupUrl) {
         String subject = "Your ParkNova garage portal access";
         String body = """
                 Hello,
 
-                Your organization "%s" has been set up on ParkNova.
+                Your ParkNova garage portal account has been set up.
 
                 Username: %s
                 Role: System Admin
@@ -38,7 +38,6 @@ public class PortalInviteMailer {
 
                 — ParkNova
                 """.formatted(
-                organizationName != null ? organizationName : "your organization",
                 toEmail,
                 properties.portal().inviteTtlHours(),
                 setupUrl

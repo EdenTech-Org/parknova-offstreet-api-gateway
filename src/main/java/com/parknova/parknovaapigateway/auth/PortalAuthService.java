@@ -16,6 +16,8 @@ import com.parknova.parknovaapigateway.auth.orgadmin.OrgAdminInviteClient;
 import com.parknova.parknovaapigateway.auth.orgadmin.OrgAdminInviteClient.PortalInviteRecord;
 import com.parknova.parknovaapigateway.config.ParknovaProperties;
 import com.parknova.parknovaapigateway.exception.ApiException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,8 +25,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Base64;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -46,6 +50,7 @@ public class PortalAuthService {
     private final PortalInviteMailer inviteMailer;
     private final OrgAdminInviteClient inviteClient;
     private final ParknovaProperties properties;
+    private final ObjectMapper objectMapper;
 
     public PortalAuthService(
             KeycloakAdminService keycloakAdminService,
@@ -53,7 +58,8 @@ public class PortalAuthService {
             PasswordPolicyValidator passwordPolicyValidator,
             PortalInviteMailer inviteMailer,
             OrgAdminInviteClient inviteClient,
-            ParknovaProperties properties
+            ParknovaProperties properties,
+            ObjectMapper objectMapper
     ) {
         this.keycloakAdminService = keycloakAdminService;
         this.keycloakTokenService = keycloakTokenService;
@@ -61,21 +67,19 @@ public class PortalAuthService {
         this.inviteMailer = inviteMailer;
         this.inviteClient = inviteClient;
         this.properties = properties;
+        this.objectMapper = objectMapper;
     }
 
     public ProvisionTenantAdminResponse provision(ProvisionTenantAdminRequest request) {
         String email = request.email().trim().toLowerCase();
-        String orgName = request.organizationName().trim();
-        ProvisionResult result = keycloakAdminService.provisionTenantAdmin(
-                email, request.organizationId(), orgName);
+        ProvisionResult result = keycloakAdminService.provisionTenantAdmin(email, request.organizationId());
         String token = issueAndStoreInvite(
                 result.userId(),
                 email,
                 request.organizationId(),
-                orgName,
                 KeycloakAdminService.INVITE_KIND_SETUP
         );
-        inviteMailer.sendSetupInvite(email, orgName, setupLink(token));
+        inviteMailer.sendSetupInvite(email, setupLink(token));
         return new ProvisionTenantAdminResponse(
                 "Tenant admin provisioned. Invite email queued.",
                 email,
@@ -87,7 +91,6 @@ public class PortalAuthService {
         PortalInviteRecord invite = requireUsableInvite(token, null);
         return new SetupPreviewResponse(
                 invite.email(),
-                invite.organizationName(),
                 invite.organizationId(),
                 invite.kind()
         );
@@ -111,12 +114,11 @@ public class PortalAuthService {
             UserRepresentation user = userOpt.get();
             if (keycloakAdminService.hasRealmRole(user.getId(), KeycloakAdminService.ROLE_SYSTEM_ADMIN)
                     && !keycloakAdminService.hasPasswordCredential(user.getId())) {
-                String orgName = KeycloakAdminService.firstAttr(user, KeycloakAdminService.ATTR_ORGANIZATION_NAME);
                 Long orgId = parseOrgId(user);
                 if (orgId != null) {
                     String token = issueAndStoreInvite(
-                            user.getId(), email, orgId, orgName, KeycloakAdminService.INVITE_KIND_SETUP);
-                    inviteMailer.sendSetupInvite(email, orgName, setupLink(token));
+                            user.getId(), email, orgId, KeycloakAdminService.INVITE_KIND_SETUP);
+                    inviteMailer.sendSetupInvite(email, setupLink(token));
                 }
             }
         }
@@ -130,11 +132,10 @@ public class PortalAuthService {
             UserRepresentation user = userOpt.get();
             if (keycloakAdminService.hasRealmRole(user.getId(), KeycloakAdminService.ROLE_SYSTEM_ADMIN)
                     && keycloakAdminService.hasPasswordCredential(user.getId())) {
-                String orgName = KeycloakAdminService.firstAttr(user, KeycloakAdminService.ATTR_ORGANIZATION_NAME);
                 Long orgId = parseOrgId(user);
                 if (orgId != null) {
                     String token = issueAndStoreInvite(
-                            user.getId(), email, orgId, orgName, KeycloakAdminService.INVITE_KIND_RESET);
+                            user.getId(), email, orgId, KeycloakAdminService.INVITE_KIND_RESET);
                     inviteMailer.sendPasswordReset(email, resetLink(token));
                 }
             }
@@ -164,8 +165,29 @@ public class PortalAuthService {
         if (!keycloakAdminService.hasPasswordCredential(user.getId())) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, INVALID_CREDENTIALS);
         }
+        String orgAttr = KeycloakAdminService.firstAttr(user, KeycloakAdminService.ATTR_ORGANIZATION_ID);
+        if (orgAttr == null || orgAttr.isBlank()) {
+            // Attributes on findByEmail are often incomplete — reload full user
+            orgAttr = keycloakAdminService.findById(user.getId())
+                    .map(u -> KeycloakAdminService.firstAttr(u, KeycloakAdminService.ATTR_ORGANIZATION_ID))
+                    .orElse(null);
+        }
+        if (orgAttr == null || orgAttr.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY,
+                    "Portal account is missing Keycloak user attribute organizationId. "
+                            + "Set it under Users → Attributes, or re-run provision for this email.");
+        }
         try {
-            return keycloakTokenService.login(user.getUsername(), request.password());
+            TokenResponse tokens = keycloakTokenService.login(user.getUsername(), request.password());
+            if (!accessTokenHasOrganizationId(tokens.accessToken())) {
+                throw new ApiException(HttpStatus.BAD_GATEWAY,
+                        "Access token is missing organizationId claim. "
+                                + "In Keycloak: Clients → parknova-api-gateway → Client scopes → "
+                                + "parknova-api-gateway-dedicated → Add mapper → User Attribute "
+                                + "(User Attribute=organizationId, Token Claim Name=organizationId, "
+                                + "Add to access token=ON). Log in again after saving.");
+            }
+            return tokens;
         } catch (ApiException ex) {
             if (ex.getStatus() == HttpStatus.UNAUTHORIZED) {
                 throw new ApiException(HttpStatus.UNAUTHORIZED, INVALID_CREDENTIALS);
@@ -217,12 +239,11 @@ public class PortalAuthService {
             String keycloakUserId,
             String email,
             long organizationId,
-            String organizationName,
             String kind
     ) {
         String token = UUID.randomUUID().toString();
         Instant expiresAt = Instant.now().plus(properties.portal().inviteTtlHours(), ChronoUnit.HOURS);
-        inviteClient.create(token, organizationId, organizationName, email, keycloakUserId, kind, expiresAt);
+        inviteClient.create(token, organizationId, email, keycloakUserId, kind, expiresAt);
         return token;
     }
 
@@ -266,5 +287,38 @@ public class PortalAuthService {
         } catch (NumberFormatException ex) {
             return null;
         }
+    }
+
+    private boolean accessTokenHasOrganizationId(String accessToken) {
+        if (accessToken == null || accessToken.isBlank()) {
+            return false;
+        }
+        String[] parts = accessToken.split("\\.");
+        if (parts.length < 2) {
+            return false;
+        }
+        try {
+            String json = new String(Base64.getUrlDecoder().decode(padBase64(parts[1])), StandardCharsets.UTF_8);
+            JsonNode node = objectMapper.readTree(json);
+            JsonNode claim = node.get("organizationId");
+            if (claim == null || claim.isNull()) {
+                return false;
+            }
+            if (claim.isArray()) {
+                return claim.size() > 0 && !claim.get(0).asText("").isBlank();
+            }
+            return !claim.asText("").isBlank();
+        } catch (Exception ex) {
+            log.warn("Failed to inspect access token claims: {}", ex.getMessage());
+            return false;
+        }
+    }
+
+    private static String padBase64(String value) {
+        int mod = value.length() % 4;
+        if (mod == 0) {
+            return value;
+        }
+        return value + "====".substring(mod);
     }
 }

@@ -32,7 +32,6 @@ public class OrgAdminInviteClient {
     public PortalInviteRecord create(
             String token,
             long organizationId,
-            String organizationName,
             String email,
             String keycloakUserId,
             String kind,
@@ -41,7 +40,7 @@ public class OrgAdminInviteClient {
         Map<String, Object> body = Map.of(
                 "token", token,
                 "organizationId", organizationId,
-                "organizationName", organizationName != null ? organizationName : "",
+                "organizationName", "",
                 "email", email,
                 "keycloakUserId", keycloakUserId,
                 "kind", kind,

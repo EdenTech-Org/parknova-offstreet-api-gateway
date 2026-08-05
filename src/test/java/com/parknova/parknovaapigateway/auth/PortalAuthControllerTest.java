@@ -62,7 +62,7 @@ class PortalAuthControllerTest {
     @Test
     void setupPreview_returnsEmail() throws Exception {
         when(portalAuthService.previewSetup("tok"))
-                .thenReturn(new SetupPreviewResponse("admin@acme.example", "Acme", 42L, "SETUP"));
+                .thenReturn(new SetupPreviewResponse("admin@acme.example", 42L, "SETUP"));
 
         mockMvc.perform(get("/auth/portal/setup").param("token", "tok"))
                 .andExpect(status().isOk())
@@ -108,8 +108,7 @@ class PortalAuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
                                 "organizationId", 42,
-                                "email", "admin@acme.example",
-                                "organizationName", "Acme"
+                                "email", "admin@acme.example"
                         ))))
                 .andExpect(status().isUnauthorized());
     }
@@ -127,8 +126,7 @@ class PortalAuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
                                 "organizationId", 42,
-                                "email", "admin@acme.example",
-                                "organizationName", "Acme"
+                                "email", "admin@acme.example"
                         ))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.organizationId").value(42));

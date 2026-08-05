@@ -1,5 +1,6 @@
 package com.parknova.parknovaapigateway.auth;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parknova.parknovaapigateway.auth.dto.ChangePasswordRequest;
 import com.parknova.parknovaapigateway.auth.dto.EmailRequest;
 import com.parknova.parknovaapigateway.auth.dto.LoginRequest;
@@ -25,7 +26,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Base64;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -68,28 +73,28 @@ class PortalAuthServiceTest {
                 new PasswordPolicyValidator(),
                 inviteMailer,
                 inviteClient,
-                properties
+                properties,
+                new ObjectMapper()
         );
     }
 
     @Test
     void provision_createsInviteInOrgAdminAndSendsEmail() {
-        when(keycloakAdminService.provisionTenantAdmin("admin@acme.example", 42L, "Acme"))
+        when(keycloakAdminService.provisionTenantAdmin("admin@acme.example", 42L))
                 .thenReturn(new ProvisionResult("user-1", true));
-        when(inviteClient.create(anyString(), eq(42L), eq("Acme"), eq("admin@acme.example"),
+        when(inviteClient.create(anyString(), eq(42L), eq("admin@acme.example"),
                 eq("user-1"), eq("SETUP"), any(Instant.class)))
                 .thenAnswer(inv -> usableInvite(inv.getArgument(0), "SETUP"));
 
         var response = portalAuthService.provision(
-                new ProvisionTenantAdminRequest(42L, "Admin@Acme.Example", "Acme"));
+                new ProvisionTenantAdminRequest(42L, "Admin@Acme.Example"));
 
         assertThat(response.email()).isEqualTo("admin@acme.example");
         ArgumentCaptor<String> tokenCaptor = ArgumentCaptor.forClass(String.class);
-        verify(inviteClient).create(tokenCaptor.capture(), eq(42L), eq("Acme"), eq("admin@acme.example"),
+        verify(inviteClient).create(tokenCaptor.capture(), eq(42L), eq("admin@acme.example"),
                 eq("user-1"), eq("SETUP"), any(Instant.class));
         verify(inviteMailer).sendSetupInvite(
                 eq("admin@acme.example"),
-                eq("Acme"),
                 eq("http://localhost:3000/setup?token=" + tokenCaptor.getValue()));
     }
 
@@ -101,7 +106,7 @@ class PortalAuthServiceTest {
         SetupPreviewResponse preview = portalAuthService.previewSetup("tok");
 
         assertThat(preview.email()).isEqualTo("admin@acme.example");
-        assertThat(preview.organizationName()).isEqualTo("Acme");
+        assertThat(preview.organizationId()).isEqualTo(42L);
         assertThat(preview.kind()).isEqualTo("SETUP");
     }
 
@@ -109,7 +114,7 @@ class PortalAuthServiceTest {
     void previewSetup_whenExpired_throwsClearMessage() {
         when(inviteClient.findByToken("old"))
                 .thenReturn(Optional.of(new PortalInviteRecord(
-                        "old", 42L, "Acme", "admin@acme.example", "u1", "SETUP",
+                        "old", 42L, "", "admin@acme.example", "u1", "SETUP",
                         Instant.now().minusSeconds(10), null, null, true, false)));
 
         assertThatThrownBy(() -> portalAuthService.previewSetup("old"))
@@ -142,17 +147,46 @@ class PortalAuthServiceTest {
         user.setId("u1");
         user.setUsername("admin@acme.example");
         user.setEmail("admin@acme.example");
+        user.setAttributes(Map.of("organizationId", List.of("42")));
+
+        String access = fakeJwt(Map.of("organizationId", "42", "email", "admin@acme.example"));
 
         when(keycloakAdminService.findByEmail("admin@acme.example")).thenReturn(Optional.of(user));
         when(keycloakAdminService.hasRealmRole("u1", "SYSTEM_ADMIN")).thenReturn(true);
         when(keycloakAdminService.hasPasswordCredential("u1")).thenReturn(true);
         when(keycloakTokenService.login("admin@acme.example", "SecurePass1!"))
-                .thenReturn(new TokenResponse("access", "refresh", 300L, 1800L, "Bearer", "openid"));
+                .thenReturn(new TokenResponse(access, "refresh", 300L, 1800L, "Bearer", "openid"));
 
         TokenResponse tokens = portalAuthService.login(
                 new LoginRequest("admin@acme.example", "SecurePass1!"));
 
-        assertThat(tokens.accessToken()).isEqualTo("access");
+        assertThat(tokens.accessToken()).isEqualTo(access);
+    }
+
+    @Test
+    void login_whenTokenMissingOrganizationId_failsWithConfigHint() {
+        UserRepresentation user = new UserRepresentation();
+        user.setId("u1");
+        user.setUsername("admin@acme.example");
+        user.setEmail("admin@acme.example");
+        user.setAttributes(Map.of("organizationId", List.of("42")));
+
+        String access = fakeJwt(Map.of("email", "admin@acme.example"));
+
+        when(keycloakAdminService.findByEmail("admin@acme.example")).thenReturn(Optional.of(user));
+        when(keycloakAdminService.hasRealmRole("u1", "SYSTEM_ADMIN")).thenReturn(true);
+        when(keycloakAdminService.hasPasswordCredential("u1")).thenReturn(true);
+        when(keycloakTokenService.login("admin@acme.example", "SecurePass1!"))
+                .thenReturn(new TokenResponse(access, "refresh", 300L, 1800L, "Bearer", "openid"));
+
+        assertThatThrownBy(() -> portalAuthService.login(
+                new LoginRequest("admin@acme.example", "SecurePass1!")))
+                .isInstanceOf(ApiException.class)
+                .satisfies(ex -> {
+                    ApiException api = (ApiException) ex;
+                    assertThat(api.getStatus()).isEqualTo(HttpStatus.BAD_GATEWAY);
+                    assertThat(api.getMessage()).contains("organizationId claim");
+                });
     }
 
     @Test
@@ -208,12 +242,25 @@ class PortalAuthServiceTest {
         MessageResponse response = portalAuthService.resendInvite(new EmailRequest("missing@example.com"));
 
         assertThat(response.message()).contains("If an account exists");
-        verify(inviteClient, never()).create(anyString(), anyLong(), any(), anyString(), anyString(), anyString(), any());
+        verify(inviteClient, never()).create(anyString(), anyLong(), anyString(), anyString(), anyString(), any());
     }
 
     private static PortalInviteRecord usableInvite(String token, String kind) {
         return new PortalInviteRecord(
-                token, 42L, "Acme", "admin@acme.example", "u1", kind,
+                token, 42L, "", "admin@acme.example", "u1", kind,
                 Instant.now().plusSeconds(3600), null, null, false, true);
+    }
+
+    private static String fakeJwt(Map<String, Object> claims) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            String header = Base64.getUrlEncoder().withoutPadding()
+                    .encodeToString("{\"alg\":\"none\"}".getBytes(StandardCharsets.UTF_8));
+            String payload = Base64.getUrlEncoder().withoutPadding()
+                    .encodeToString(mapper.writeValueAsBytes(claims));
+            return header + "." + payload + ".sig";
+        } catch (Exception ex) {
+            throw new IllegalStateException(ex);
+        }
     }
 }

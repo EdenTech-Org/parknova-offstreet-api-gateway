@@ -31,7 +31,6 @@ public class KeycloakAdminService {
 
     public static final String ROLE_SYSTEM_ADMIN = "SYSTEM_ADMIN";
     public static final String ATTR_ORGANIZATION_ID = "organizationId";
-    public static final String ATTR_ORGANIZATION_NAME = "organizationName";
     public static final String ATTR_INVITE_TOKEN = "inviteToken";
     public static final String ATTR_INVITE_EXPIRES_AT = "inviteExpiresAt";
     public static final String ATTR_INVITE_KIND = "inviteKind";
@@ -42,7 +41,7 @@ public class KeycloakAdminService {
             "Keycloak Admin API returned 403 Forbidden for client '%s'. "
                     + "In Keycloak: Clients -> client -> Capability config: Client authentication ON, Service accounts ON; "
                     + "Client scopes: Full scope allowed ON; Service account roles -> Assign role -> Filter by clients -> realm-management -> "
-                    + "manage-users, view-users, query-users (or realm-admin).";
+                    + "manage-users, view-users, query-users, view-realm (required to assign SYSTEM_ADMIN), or realm-admin.";
 
     private final Keycloak keycloak;
     private final ParknovaProperties properties;
@@ -116,7 +115,7 @@ public class KeycloakAdminService {
     /**
      * Creates a tenant system admin with no password. Invite tokens are stored in org-admin DB.
      */
-    public ProvisionResult provisionTenantAdmin(String email, long organizationId, String organizationName) {
+    public ProvisionResult provisionTenantAdmin(String email, long organizationId) {
         String normalizedEmail = email.trim().toLowerCase();
         Optional<UserRepresentation> existing = findByEmail(normalizedEmail);
         if (existing.isPresent()) {
@@ -124,7 +123,7 @@ public class KeycloakAdminService {
             if (hasRealmRole(user.getId(), ROLE_SYSTEM_ADMIN)
                     && organizationIdEquals(user, organizationId)
                     && !hasPasswordCredential(user.getId())) {
-                ensureOrgAttributes(user.getId(), organizationId, organizationName);
+                ensureOrgAttributes(user.getId(), organizationId);
                 return new ProvisionResult(user.getId(), false);
             }
             throw new ApiException(HttpStatus.CONFLICT,
@@ -135,12 +134,12 @@ public class KeycloakAdminService {
         user.setEnabled(true);
         user.setUsername(normalizedEmail);
         user.setEmail(normalizedEmail);
-        user.setFirstName(organizationName != null ? organizationName : "Tenant");
+        user.setFirstName("Tenant");
         user.setLastName("Admin");
         user.setEmailVerified(false);
         user.setRequiredActions(List.of());
         user.setCredentials(List.of());
-        user.setAttributes(orgAttributes(organizationId, organizationName));
+        user.setAttributes(orgAttributes(organizationId));
 
         UsersResource users = users();
         try (Response response = adminCall(() -> users.create(user))) {
@@ -148,6 +147,17 @@ public class KeycloakAdminService {
             if (status == 201) {
                 String userId = CreatedResponseUtil.getCreatedId(response);
                 assignRealmRole(userId, ROLE_SYSTEM_ADMIN);
+                // Create can drop custom attrs when User profile blocks unmanaged attributes — force-set and verify.
+                ensureOrgAttributes(userId, organizationId);
+                UserRepresentation stored = findById(userId)
+                        .orElseThrow(() -> new ApiException(HttpStatus.BAD_GATEWAY,
+                                "Provisioned Keycloak user not found after create"));
+                if (!organizationIdEquals(stored, organizationId)) {
+                    throw new ApiException(HttpStatus.BAD_GATEWAY,
+                            "Keycloak did not persist user attribute organizationId. "
+                                    + "In Realm settings → User profile: allow unmanaged attributes, "
+                                    + "or declare attribute organizationId. Then delete this user and re-provision.");
+                }
                 log.info("Provisioned tenant admin userId={} organizationId={} email={}",
                         userId, organizationId, normalizedEmail);
                 return new ProvisionResult(userId, true);
@@ -163,16 +173,14 @@ public class KeycloakAdminService {
         }
     }
 
-    public void ensureOrgAttributes(String userId, long organizationId, String organizationName) {
+    public void ensureOrgAttributes(String userId, long organizationId) {
         UserResource resource = users().get(userId);
         UserRepresentation user = adminCall(resource::toRepresentation);
         Map<String, List<String>> attrs = user.getAttributes() != null
                 ? new HashMap<>(user.getAttributes())
                 : new HashMap<>();
         attrs.put(ATTR_ORGANIZATION_ID, List.of(String.valueOf(organizationId)));
-        if (organizationName != null && !organizationName.isBlank()) {
-            attrs.put(ATTR_ORGANIZATION_NAME, List.of(organizationName));
-        }
+        attrs.remove("organizationName");
         // Clear legacy invite attrs if present from older deployments
         attrs.remove(ATTR_INVITE_TOKEN);
         attrs.remove(ATTR_INVITE_EXPIRES_AT);
@@ -302,12 +310,9 @@ public class KeycloakAdminService {
         });
     }
 
-    private Map<String, List<String>> orgAttributes(long organizationId, String organizationName) {
+    private Map<String, List<String>> orgAttributes(long organizationId) {
         Map<String, List<String>> attrs = new HashMap<>();
         attrs.put(ATTR_ORGANIZATION_ID, List.of(String.valueOf(organizationId)));
-        if (organizationName != null && !organizationName.isBlank()) {
-            attrs.put(ATTR_ORGANIZATION_NAME, List.of(organizationName));
-        }
         return attrs;
     }
 

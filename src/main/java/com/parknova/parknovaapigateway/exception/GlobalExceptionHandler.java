@@ -40,7 +40,7 @@ public class GlobalExceptionHandler {
             return body(HttpStatus.BAD_GATEWAY,
                     "Keycloak Admin API returned 403 Forbidden. "
                             + "Enable Service accounts on client 'parknova-api-gateway' and assign "
-                            + "realm-management roles: manage-users, view-users, query-users.");
+                            + "realm-management roles: manage-users, view-users, query-users, view-realm.");
         }
         return body(HttpStatus.BAD_GATEWAY,
                 "Keycloak Admin API error: HTTP " + remoteStatus);

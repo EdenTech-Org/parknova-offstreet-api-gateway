@@ -7,7 +7,6 @@ import jakarta.validation.constraints.Positive;
 
 public record ProvisionTenantAdminRequest(
         @NotNull @Positive Long organizationId,
-        @NotBlank @Email String email,
-        @NotBlank String organizationName
+        @NotBlank @Email String email
 ) {
 }
