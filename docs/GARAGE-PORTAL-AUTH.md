@@ -158,20 +158,29 @@ Under **Realm settings** → **User profile** (Keycloak 24+), allow unmanaged at
 | Attribute | Purpose |
 |-----------|---------|
 | `organizationId` | Tenant scope; mapped into JWT |
-| `organizationName` | Shown in invite email / setup UI |
 
 Invite/reset tokens are **not** Keycloak attributes — they live in `organization_console.portal_invite` (org-admin).
 
-If unmanaged attributes are disabled, provision will fail when setting `organizationId` — enable unmanaged attributes or add these attributes to the user profile.
+If unmanaged attributes are disabled, provision will fail when setting `organizationId` — enable unmanaged attributes or add this attribute to the user profile.
 
-### 6. SMTP (optional)
+### 6. Invite / reset email (Kafka → offstreet)
 
-**Either:**
+Provision and forgot-password publish an HTML `EmailMessage` to Kafka topic
+`parknova.email.send` (env `KAFKA_TOPIC_EMAIL`). Offstreet-service
+`EmailMessageListener` consumes it and sends via SMTP (`AsyncEmailService`).
 
-- Configure **Realm settings** → **Email** (not required for the custom gateway mailer), **or**
-- Set gateway `MAIL_ENABLED=true` + `spring.mail.*` so the gateway sends invite/reset emails.
+The email includes:
+- Portal base URL (`PORTAL_BASE_URL`)
+- Username (email) and role
+- Setup/reset **token** and one-time action link (`…/setup?token=…` or `…/reset-password?token=…`)
 
-When `MAIL_ENABLED=false`, the gateway **logs** the setup/reset URL — copy the `token` query param into Postman variables `setupToken` / `resetToken`.
+Requirements:
+- Kafka reachable (`KAFKA_URL`, default `localhost:9092`)
+- `parknova.kafka.enabled=true` on the gateway (default)
+- Offstreet-service running with email Kafka consumer + SMTP configured
+
+When Kafka is disabled (`KAFKA_ENABLED=false`), the gateway still **logs** the setup/reset URL —
+copy the `token` query param into Postman variables `setupToken` / `resetToken`.
 
 ### 7. Quick verification
 
@@ -417,9 +426,9 @@ Garage portal backends must authorize using `SYSTEM_ADMIN` + `X-Organization-Id`
 | `parknova.portal.base-url` / `PORTAL_BASE_URL` | Base URL for setup/reset links |
 | `parknova.portal.invite-ttl-hours` | Default `72` |
 | `parknova.service-to-service-secret` / `SERVICE_TO_SERVICE_SECRET` | Shared with offstreet |
-| `parknova.mail.enabled` / `MAIL_ENABLED` | When `false`, invite URL is logged instead of emailed |
-| `parknova.mail.from` | From address when mail enabled |
-| Spring `spring.mail.*` | SMTP host/port/credentials |
+| `parknova.kafka.enabled` / `KAFKA_ENABLED` | Publish invite/reset emails to Kafka (default `true`) |
+| `parknova.kafka.topic.email` / `KAFKA_TOPIC_EMAIL` | Default `parknova.email.send` (offstreet `EmailMessageListener`) |
+| `spring.kafka.bootstrap-servers` / `KAFKA_URL` | Kafka brokers (default `localhost:9092`) |
 | `ORG_ADMIN_SERVICE_URI` | Org-admin base URL (default `http://localhost:8091`) |
 
 Offstreet-service has no portal auth or provision callback — invite provisioning is done via the gateway internal API only.

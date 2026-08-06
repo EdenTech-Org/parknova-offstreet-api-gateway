@@ -1,4 +1,8 @@
 parknova:
+  kafka:
+    enabled: false
+    topic:
+      email: parknova.email.send
   keycloak:
     base-url: http://localhost:8089
     realm: parknova

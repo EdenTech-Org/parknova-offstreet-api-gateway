@@ -27,8 +27,19 @@ spring:
             allowedMethods: "*"
   lifecycle:
     timeout-per-shutdown-phase: 20s
+  kafka:
+    bootstrap-servers: ${KAFKA_URL:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
 
 parknova:
+  kafka:
+    enabled: ${KAFKA_ENABLED:true}
+    topic:
+      email: ${KAFKA_TOPIC_EMAIL:parknova.email.send}
   keycloak:
     base-url: ${KEYCLOAK_BASE_URL:https://keycloak-dev.eden-tech.io}
     realm: ${KEYCLOAK_REALM:parknova}

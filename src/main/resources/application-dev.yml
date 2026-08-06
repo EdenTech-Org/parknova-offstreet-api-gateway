@@ -32,6 +32,10 @@ parknova:
 
   service-to-service-secret: ${SERVICE_TO_SERVICE_SECRET:local-dev-secret}
   org-admin-base-url: ${ORG_ADMIN_SERVICE_URI:http://localhost:8091}
+  kafka:
+    enabled: ${KAFKA_ENABLED:true}
+    topic:
+      email: ${KAFKA_TOPIC_EMAIL:parknova.email.send}
 
 
 
