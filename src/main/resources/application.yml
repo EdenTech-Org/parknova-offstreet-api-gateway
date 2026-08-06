@@ -22,9 +22,13 @@ spring:
       globalcors:
         corsConfigurations:
           '[/**]':
-            allowedOrigins: "*"
+            allowedOriginPatterns:
+              - "https://zone-parking-fe-dev.eden-tech.io"
+              - "https://*.eden-tech.io"
+              - "http://localhost:*"
             allowedHeaders: "*"
             allowedMethods: "*"
+            allowCredentials: true
   lifecycle:
     timeout-per-shutdown-phase: 20s
   kafka:
@@ -36,6 +40,9 @@ spring:
         spring.json.add.type.headers: false
 
 parknova:
+  cors:
+    # Comma-separated; used by Spring Security for local controllers (/auth/**, /internal/auth/**)
+    allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:https://zone-parking-fe-dev.eden-tech.io,https://*.eden-tech.io,http://localhost:*}
   kafka:
     enabled: ${KAFKA_ENABLED:true}
     topic:

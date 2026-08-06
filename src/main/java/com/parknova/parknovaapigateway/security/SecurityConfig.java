@@ -4,6 +4,7 @@ import com.parknova.parknovaapigateway.config.ParknovaProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,6 +25,12 @@ import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.Arrays;
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -80,6 +87,36 @@ public class SecurityConfig {
         return new OrgAdminTenantFilter();
     }
 
+    /**
+     * CORS for local gateway controllers ({@code /auth/**}, {@code /internal/auth/**}).
+     * Spring Cloud Gateway {@code globalcors} only covers proxied routes — without this,
+     * browser calls from the portal FE fail preflight (e.g. custom {@code X-SERVICE-TO-SERVICE}).
+     */
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource(
+            @Value("${parknova.cors.allowed-origin-patterns:https://zone-parking-fe-dev.eden-tech.io,https://*.eden-tech.io,http://localhost:*}")
+            String allowedOriginPatterns
+    ) {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOriginPatterns(splitCsv(allowedOriginPatterns));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"));
+        config.setAllowedHeaders(List.of("*"));
+        config.setExposedHeaders(List.of("*"));
+        config.setAllowCredentials(true);
+        config.setMaxAge(3600L);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
+    }
+
+    private static List<String> splitCsv(String csv) {
+        return Arrays.stream(csv.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+    }
+
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
@@ -87,6 +124,8 @@ public class SecurityConfig {
             OrgAdminTenantFilter orgAdminTenantFilter
     ) throws Exception {
         http.csrf(AbstractHttpConfigurer::disable);
+        http.cors(cors -> {
+        });
         http.exceptionHandling(ex -> ex
                 .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
         );
