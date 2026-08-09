@@ -38,7 +38,7 @@ class PortalInviteMailerTest {
     void sendSetupInvite_publishesEmailWithPortalUrlAndToken() {
         String setupUrl = "http://localhost:3000/setup?token=abc-123";
 
-        mailer.sendSetupInvite("admin@acme.example", setupUrl);
+        mailer.sendSetupInvite("acme-admin", "admin@acme.example", setupUrl);
 
         ArgumentCaptor<EmailMessage> captor = ArgumentCaptor.forClass(EmailMessage.class);
         verify(emailPublisher).publish(captor.capture());
@@ -49,7 +49,8 @@ class PortalInviteMailerTest {
         assertThat(message.body()).contains("http://localhost:3000");
         assertThat(message.body()).contains("abc-123");
         assertThat(message.body()).contains(setupUrl);
-        assertThat(message.body()).contains("admin@acme.example");
+        // The credential email shows the username, not the email address.
+        assertThat(message.body()).contains("acme-admin");
         assertThat(message.attachments()).isNull();
     }
 
@@ -57,7 +58,7 @@ class PortalInviteMailerTest {
     void sendPasswordReset_publishesEmailWithResetLink() {
         String resetUrl = "http://localhost:3000/reset-password?token=reset-tok";
 
-        mailer.sendPasswordReset("admin@acme.example", resetUrl);
+        mailer.sendPasswordReset("acme-admin", "admin@acme.example", resetUrl);
 
         ArgumentCaptor<EmailMessage> captor = ArgumentCaptor.forClass(EmailMessage.class);
         verify(emailPublisher).publish(captor.capture());

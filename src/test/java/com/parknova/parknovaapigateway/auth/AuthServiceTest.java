@@ -71,17 +71,17 @@ class AuthServiceTest {
     }
 
     @Test
-    void login_resolvesEmailToUsernameAndReturnsTokens() {
+    void login_resolvesUsernameAndReturnsTokens() {
         UserRepresentation user = new UserRepresentation();
         user.setUsername("jdoe");
         user.setEmail("jdoe@example.com");
         user.setEmailVerified(false);
 
-        when(keycloakAdminService.findByEmail("jdoe@example.com")).thenReturn(Optional.of(user));
+        when(keycloakAdminService.findByUsername("jdoe")).thenReturn(Optional.of(user));
         when(keycloakTokenService.login("jdoe", "SecurePass1!"))
                 .thenReturn(new TokenResponse("access", "refresh", 300L, 1800L, "Bearer", "openid"));
 
-        TokenResponse tokens = authService.login(new LoginRequest("  JDOE@EXAMPLE.COM  ", "SecurePass1!"));
+        TokenResponse tokens = authService.login(new LoginRequest("  jdoe  ", "SecurePass1!"));
 
         assertThat(tokens.accessToken()).isEqualTo("access");
         assertThat(tokens.refreshToken()).isEqualTo("refresh");
@@ -90,14 +90,14 @@ class AuthServiceTest {
 
     @Test
     void login_whenUserMissing_throwsUnauthorized() {
-        when(keycloakAdminService.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+        when(keycloakAdminService.findByUsername("missing")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> authService.login(new LoginRequest("missing@example.com", "bad")))
+        assertThatThrownBy(() -> authService.login(new LoginRequest("missing", "bad")))
                 .isInstanceOf(ApiException.class)
                 .satisfies(ex -> {
                     ApiException apiEx = (ApiException) ex;
                     assertThat(apiEx.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED);
-                    assertThat(apiEx.getMessage()).isEqualTo("Invalid email or password");
+                    assertThat(apiEx.getMessage()).isEqualTo("Invalid username or password");
                 });
     }
 

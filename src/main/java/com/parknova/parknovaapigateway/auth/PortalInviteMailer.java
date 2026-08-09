@@ -24,11 +24,11 @@ public class PortalInviteMailer {
         this.emailPublisher = emailPublisher;
     }
 
-    public void sendSetupInvite(String toEmail, String setupUrl) {
+    public void sendSetupInvite(String username, String toEmail, String setupUrl) {
         String subject = "Your ParkNova garage portal access";
         String body = htmlBody(
                 "Your ParkNova garage portal account has been set up.",
-                toEmail,
+                username,
                 "System Admin",
                 "Set your password",
                 setupUrl,
@@ -38,11 +38,11 @@ public class PortalInviteMailer {
         publish(toEmail, subject, body, setupUrl);
     }
 
-    public void sendPasswordReset(String toEmail, String resetUrl) {
+    public void sendPasswordReset(String username, String toEmail, String resetUrl) {
         String subject = "Reset your ParkNova garage portal password";
         String body = htmlBody(
                 "A password reset was requested for your garage portal account.",
-                toEmail,
+                username,
                 "System Admin",
                 "Reset password",
                 resetUrl,

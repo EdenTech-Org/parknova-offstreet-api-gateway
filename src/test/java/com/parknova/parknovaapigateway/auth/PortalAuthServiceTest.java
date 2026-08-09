@@ -80,20 +80,21 @@ class PortalAuthServiceTest {
 
     @Test
     void provision_createsInviteInOrgAdminAndSendsEmail() {
-        when(keycloakAdminService.provisionTenantAdmin("admin@acme.example", 42L))
+        when(keycloakAdminService.provisionTenantAdmin("acme-admin", "admin@acme.example", 42L))
                 .thenReturn(new ProvisionResult("user-1", true));
         when(inviteClient.create(anyString(), eq(42L), eq("admin@acme.example"),
                 eq("user-1"), eq("SETUP"), any(Instant.class)))
                 .thenAnswer(inv -> usableInvite(inv.getArgument(0), "SETUP"));
 
         var response = portalAuthService.provision(
-                new ProvisionTenantAdminRequest(42L, "Admin@Acme.Example"));
+                new ProvisionTenantAdminRequest(42L, "acme-admin", "Admin@Acme.Example"));
 
         assertThat(response.email()).isEqualTo("admin@acme.example");
         ArgumentCaptor<String> tokenCaptor = ArgumentCaptor.forClass(String.class);
         verify(inviteClient).create(tokenCaptor.capture(), eq(42L), eq("admin@acme.example"),
                 eq("user-1"), eq("SETUP"), any(Instant.class));
         verify(inviteMailer).sendSetupInvite(
+                eq("acme-admin"),
                 eq("admin@acme.example"),
                 eq("http://localhost:3000/setup?token=" + tokenCaptor.getValue()));
     }
@@ -151,7 +152,7 @@ class PortalAuthServiceTest {
 
         String access = fakeJwt(Map.of("organizationId", "42", "email", "admin@acme.example"));
 
-        when(keycloakAdminService.findByEmail("admin@acme.example")).thenReturn(Optional.of(user));
+        when(keycloakAdminService.findByUsername("admin@acme.example")).thenReturn(Optional.of(user));
         when(keycloakAdminService.hasRealmRole("u1", "SYSTEM_ADMIN")).thenReturn(true);
         when(keycloakAdminService.hasPasswordCredential("u1")).thenReturn(true);
         when(keycloakTokenService.login("admin@acme.example", "SecurePass1!"))
@@ -173,7 +174,7 @@ class PortalAuthServiceTest {
 
         String access = fakeJwt(Map.of("email", "admin@acme.example"));
 
-        when(keycloakAdminService.findByEmail("admin@acme.example")).thenReturn(Optional.of(user));
+        when(keycloakAdminService.findByUsername("admin@acme.example")).thenReturn(Optional.of(user));
         when(keycloakAdminService.hasRealmRole("u1", "SYSTEM_ADMIN")).thenReturn(true);
         when(keycloakAdminService.hasPasswordCredential("u1")).thenReturn(true);
         when(keycloakTokenService.login("admin@acme.example", "SecurePass1!"))
@@ -195,7 +196,7 @@ class PortalAuthServiceTest {
         user.setId("u1");
         user.setUsername("consumer@example.com");
 
-        when(keycloakAdminService.findByEmail("consumer@example.com")).thenReturn(Optional.of(user));
+        when(keycloakAdminService.findByUsername("consumer@example.com")).thenReturn(Optional.of(user));
         when(keycloakAdminService.hasRealmRole("u1", "SYSTEM_ADMIN")).thenReturn(false);
 
         assertThatThrownBy(() -> portalAuthService.login(
@@ -213,7 +214,7 @@ class PortalAuthServiceTest {
         user.setUsername("admin@acme.example");
         user.setEmail("admin@acme.example");
 
-        when(keycloakAdminService.findByEmail("admin@acme.example")).thenReturn(Optional.of(user));
+        when(keycloakAdminService.findByUsername("admin@acme.example")).thenReturn(Optional.of(user));
         when(keycloakAdminService.hasRealmRole("u1", "SYSTEM_ADMIN")).thenReturn(true);
         when(keycloakTokenService.login("admin@acme.example", "OldPass1!"))
                 .thenReturn(new TokenResponse("a", "r", 1L, 1L, "Bearer", "openid"));
@@ -221,7 +222,7 @@ class PortalAuthServiceTest {
         Jwt jwt = Jwt.withTokenValue("t")
                 .header("alg", "none")
                 .subject("u1")
-                .claim("email", "admin@acme.example")
+                .claim("preferred_username", "admin@acme.example")
                 .claim("sid", "session-keep")
                 .issuedAt(Instant.now())
                 .expiresAt(Instant.now().plusSeconds(60))
@@ -237,9 +238,9 @@ class PortalAuthServiceTest {
 
     @Test
     void resendInvite_alwaysReturnsGenericMessage() {
-        when(keycloakAdminService.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+        when(keycloakAdminService.findByUsername("missing-user")).thenReturn(Optional.empty());
 
-        MessageResponse response = portalAuthService.resendInvite(new EmailRequest("missing@example.com"));
+        MessageResponse response = portalAuthService.resendInvite(new EmailRequest("missing-user"));
 
         assertThat(response.message()).contains("If an account exists");
         verify(inviteClient, never()).create(anyString(), anyLong(), anyString(), anyString(), anyString(), any());

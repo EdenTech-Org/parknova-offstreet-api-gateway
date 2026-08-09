@@ -38,10 +38,10 @@ public class AuthService {
     }
 
     public TokenResponse login(LoginRequest request) {
-        String email = request.email().trim().toLowerCase();
-        var user = keycloakAdminService.findByEmail(email);
+        String username = request.username().trim();
+        var user = keycloakAdminService.findByUsername(username);
         if (user.isEmpty()) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "Invalid email or password");
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "Invalid username or password");
         }
         return keycloakTokenService.login(user.get().getUsername(), request.password());
     }
