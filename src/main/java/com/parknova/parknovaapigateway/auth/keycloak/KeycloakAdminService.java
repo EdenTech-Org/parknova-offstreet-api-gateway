@@ -62,9 +62,7 @@ public class KeycloakAdminService {
         if (findByUsername(username).isPresent()) {
             throw new ApiException(HttpStatus.CONFLICT, "Username already exists");
         }
-        if (findByEmail(email).isPresent()) {
-            throw new ApiException(HttpStatus.CONFLICT, "Email already registered");
-        }
+        // Email is not unique in this realm (duplicateEmailsAllowed=true), so no email-uniqueness check.
 
         UserRepresentation user = new UserRepresentation();
         user.setEnabled(true);
@@ -115,9 +113,11 @@ public class KeycloakAdminService {
     /**
      * Creates a tenant system admin with no password. Invite tokens are stored in org-admin DB.
      */
-    public ProvisionResult provisionTenantAdmin(String email, long organizationId) {
+    public ProvisionResult provisionTenantAdmin(String username, String email, long organizationId) {
+        String normalizedUsername = username.trim();
         String normalizedEmail = email.trim().toLowerCase();
-        Optional<UserRepresentation> existing = findByEmail(normalizedEmail);
+        // Identity is username-based (email may be duplicated), so dedup on username, not email.
+        Optional<UserRepresentation> existing = findByUsername(normalizedUsername);
         if (existing.isPresent()) {
             UserRepresentation user = existing.get();
             if (hasRealmRole(user.getId(), ROLE_SYSTEM_ADMIN)
@@ -127,12 +127,12 @@ public class KeycloakAdminService {
                 return new ProvisionResult(user.getId(), false);
             }
             throw new ApiException(HttpStatus.CONFLICT,
-                    "Email already registered in Keycloak; cannot provision tenant admin");
+                    "Username already registered in Keycloak; cannot provision tenant admin");
         }
 
         UserRepresentation user = new UserRepresentation();
         user.setEnabled(true);
-        user.setUsername(normalizedEmail);
+        user.setUsername(normalizedUsername);
         user.setEmail(normalizedEmail);
         user.setFirstName("Tenant");
         user.setLastName("Admin");

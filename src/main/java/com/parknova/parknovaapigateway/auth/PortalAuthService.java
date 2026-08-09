@@ -71,15 +71,17 @@ public class PortalAuthService {
     }
 
     public ProvisionTenantAdminResponse provision(ProvisionTenantAdminRequest request) {
+        String username = request.username().trim();
         String email = request.email().trim().toLowerCase();
-        ProvisionResult result = keycloakAdminService.provisionTenantAdmin(email, request.organizationId());
+        ProvisionResult result = keycloakAdminService.provisionTenantAdmin(
+                username, email, request.organizationId());
         String token = issueAndStoreInvite(
                 result.userId(),
                 email,
                 request.organizationId(),
                 KeycloakAdminService.INVITE_KIND_SETUP
         );
-        inviteMailer.sendSetupInvite(email, setupLink(token));
+        inviteMailer.sendSetupInvite(username, email, setupLink(token));
         return new ProvisionTenantAdminResponse(
                 "Tenant admin provisioned. Invite email queued.",
                 email,
@@ -108,8 +110,8 @@ public class PortalAuthService {
     }
 
     public MessageResponse resendInvite(EmailRequest request) {
-        String email = request.email().trim().toLowerCase();
-        Optional<UserRepresentation> userOpt = keycloakAdminService.findByEmail(email);
+        String username = request.username().trim();
+        Optional<UserRepresentation> userOpt = keycloakAdminService.findByUsername(username);
         if (userOpt.isPresent()) {
             UserRepresentation user = userOpt.get();
             if (keycloakAdminService.hasRealmRole(user.getId(), KeycloakAdminService.ROLE_SYSTEM_ADMIN)
@@ -117,8 +119,8 @@ public class PortalAuthService {
                 Long orgId = parseOrgId(user);
                 if (orgId != null) {
                     String token = issueAndStoreInvite(
-                            user.getId(), email, orgId, KeycloakAdminService.INVITE_KIND_SETUP);
-                    inviteMailer.sendSetupInvite(email, setupLink(token));
+                            user.getId(), user.getEmail(), orgId, KeycloakAdminService.INVITE_KIND_SETUP);
+                    inviteMailer.sendSetupInvite(user.getUsername(), user.getEmail(), setupLink(token));
                 }
             }
         }
@@ -126,8 +128,8 @@ public class PortalAuthService {
     }
 
     public MessageResponse forgotPassword(EmailRequest request) {
-        String email = request.email().trim().toLowerCase();
-        Optional<UserRepresentation> userOpt = keycloakAdminService.findByEmail(email);
+        String username = request.username().trim();
+        Optional<UserRepresentation> userOpt = keycloakAdminService.findByUsername(username);
         if (userOpt.isPresent()) {
             UserRepresentation user = userOpt.get();
             if (keycloakAdminService.hasRealmRole(user.getId(), KeycloakAdminService.ROLE_SYSTEM_ADMIN)
@@ -135,8 +137,8 @@ public class PortalAuthService {
                 Long orgId = parseOrgId(user);
                 if (orgId != null) {
                     String token = issueAndStoreInvite(
-                            user.getId(), email, orgId, KeycloakAdminService.INVITE_KIND_RESET);
-                    inviteMailer.sendPasswordReset(email, resetLink(token));
+                            user.getId(), user.getEmail(), orgId, KeycloakAdminService.INVITE_KIND_RESET);
+                    inviteMailer.sendPasswordReset(user.getUsername(), user.getEmail(), resetLink(token));
                 }
             }
         }
@@ -153,8 +155,8 @@ public class PortalAuthService {
     }
 
     public TokenResponse login(LoginRequest request) {
-        String email = request.email().trim().toLowerCase();
-        Optional<UserRepresentation> userOpt = keycloakAdminService.findByEmail(email);
+        String username = request.username().trim();
+        Optional<UserRepresentation> userOpt = keycloakAdminService.findByUsername(username);
         if (userOpt.isEmpty()) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, INVALID_CREDENTIALS);
         }
@@ -197,18 +199,12 @@ public class PortalAuthService {
     }
 
     public MessageResponse changePassword(Jwt jwt, ChangePasswordRequest request) {
-        String email = jwt.getClaimAsString("email");
-        if (email == null || email.isBlank()) {
-            email = jwt.getClaimAsString("preferred_username");
-        }
-        if (email == null || email.isBlank()) {
+        String username = jwt.getClaimAsString("preferred_username");
+        if (username == null || username.isBlank()) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Invalid session");
         }
 
-        Optional<UserRepresentation> userOpt = keycloakAdminService.findByEmail(email.trim().toLowerCase());
-        if (userOpt.isEmpty()) {
-            userOpt = keycloakAdminService.findByUsername(email.trim().toLowerCase());
-        }
+        Optional<UserRepresentation> userOpt = keycloakAdminService.findByUsername(username.trim());
         if (userOpt.isEmpty()) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Invalid session");
         }
