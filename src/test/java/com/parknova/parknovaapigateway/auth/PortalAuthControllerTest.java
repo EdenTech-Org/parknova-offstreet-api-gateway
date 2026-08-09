@@ -78,7 +78,7 @@ class PortalAuthControllerTest {
         mockMvc.perform(post("/auth/portal/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
-                                "email", "admin@acme.example",
+                                "username", "acme-admin",
                                 "password", "SecurePass1!"
                         ))))
                 .andExpect(status().isOk())
@@ -103,14 +103,23 @@ class PortalAuthControllerTest {
     }
 
     @Test
-    void provision_requiresServiceHeader() throws Exception {
+    void provision_succeedsWithoutServiceHeader() throws Exception {
+        // Service-to-service header validation was removed on this branch, so provision no longer
+        // requires the X-SERVICE-TO-SERVICE header (it proceeds on a valid body alone).
+        when(portalAuthService.provision(any()))
+                .thenReturn(new ProvisionTenantAdminResponse(
+                        "Tenant admin provisioned. Invite email queued.",
+                        "admin@acme.example",
+                        42L));
+
         mockMvc.perform(post("/internal/auth/tenant-admin/provision")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
                                 "organizationId", 42,
+                                "username", "acme-admin",
                                 "email", "admin@acme.example"
                         ))))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isCreated());
     }
 
     @Test
@@ -126,6 +135,7 @@ class PortalAuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
                                 "organizationId", 42,
+                                "username", "acme-admin",
                                 "email", "admin@acme.example"
                         ))))
                 .andExpect(status().isCreated())
@@ -142,7 +152,7 @@ class PortalAuthControllerTest {
 
         mockMvc.perform(post("/auth/portal/resend-invite")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("email", "admin@acme.example"))))
+                        .content(objectMapper.writeValueAsString(Map.of("username", "acme-admin"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("If an account exists")));
     }

@@ -109,7 +109,7 @@ class AuthControllerTest {
 
         String body = """
                 {
-                  "email": "jdoe@example.com",
+                  "username": "jdoe",
                   "password": "SecurePass1!"
                 }
                 """;
@@ -125,11 +125,11 @@ class AuthControllerTest {
     @Test
     void login_returns401_whenCredentialsInvalid() throws Exception {
         when(authService.login(any()))
-                .thenThrow(new ApiException(HttpStatus.UNAUTHORIZED, "Invalid email or password"));
+                .thenThrow(new ApiException(HttpStatus.UNAUTHORIZED, "Invalid username or password"));
 
         String body = """
                 {
-                  "email": "jdoe@example.com",
+                  "username": "jdoe",
                   "password": "wrong"
                 }
                 """;
@@ -138,7 +138,7 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.message").value("Invalid email or password"));
+                .andExpect(jsonPath("$.message").value("Invalid username or password"));
     }
 
     @Test
