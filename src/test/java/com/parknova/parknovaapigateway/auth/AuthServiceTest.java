@@ -3,6 +3,7 @@ package com.parknova.parknovaapigateway.auth;
 import com.parknova.parknovaapigateway.auth.dto.LoginRequest;
 import com.parknova.parknovaapigateway.auth.dto.LogoutRequest;
 import com.parknova.parknovaapigateway.auth.dto.MessageResponse;
+import com.parknova.parknovaapigateway.auth.dto.RefreshRequest;
 import com.parknova.parknovaapigateway.auth.dto.RegisterRequest;
 import com.parknova.parknovaapigateway.auth.dto.TokenResponse;
 import com.parknova.parknovaapigateway.auth.keycloak.KeycloakAdminService;
@@ -99,6 +100,28 @@ class AuthServiceTest {
                     assertThat(apiEx.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED);
                     assertThat(apiEx.getMessage()).isEqualTo("Invalid username or password");
                 });
+    }
+
+    @Test
+    void refresh_delegatesRefreshTokenAndReturnsNewTokens() {
+        when(keycloakTokenService.refresh("old-refresh"))
+                .thenReturn(new TokenResponse("new-access", "new-refresh", 300L, 1800L, "Bearer", "openid"));
+
+        TokenResponse tokens = authService.refresh(new RefreshRequest("old-refresh"));
+
+        assertThat(tokens.accessToken()).isEqualTo("new-access");
+        assertThat(tokens.refreshToken()).isEqualTo("new-refresh");
+        verify(keycloakTokenService).refresh(eq("old-refresh"));
+    }
+
+    @Test
+    void refresh_whenTokenInvalid_propagatesUnauthorized() {
+        when(keycloakTokenService.refresh("expired"))
+                .thenThrow(new ApiException(HttpStatus.UNAUTHORIZED, "Session expired, please log in again"));
+
+        assertThatThrownBy(() -> authService.refresh(new RefreshRequest("expired")))
+                .isInstanceOf(ApiException.class)
+                .satisfies(ex -> assertThat(((ApiException) ex).getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED));
     }
 
     @Test

@@ -15,6 +15,7 @@ public final class PublicEndpoints {
         return new String[]{
                 "/auth/register",
                 "/auth/login",
+                "/auth/refresh",
                 "/auth/logout",
                 "/auth/portal/login",
                 "/auth/portal/setup",
