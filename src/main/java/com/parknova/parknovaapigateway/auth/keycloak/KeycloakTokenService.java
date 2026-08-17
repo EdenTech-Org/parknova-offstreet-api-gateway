@@ -39,6 +39,13 @@ public class KeycloakTokenService {
         return postToken(form, "Invalid email or password");
     }
 
+    public TokenResponse refresh(String refreshToken) {
+        MultiValueMap<String, String> form = baseClientForm();
+        form.add("grant_type", "refresh_token");
+        form.add("refresh_token", refreshToken);
+        return postToken(form, "Session expired, please log in again");
+    }
+
     public void logout(String refreshToken) {
         MultiValueMap<String, String> form = baseClientForm();
         form.add("refresh_token", refreshToken);

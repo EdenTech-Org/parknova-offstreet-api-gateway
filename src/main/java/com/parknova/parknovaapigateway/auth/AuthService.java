@@ -3,6 +3,7 @@ package com.parknova.parknovaapigateway.auth;
 import com.parknova.parknovaapigateway.auth.dto.LoginRequest;
 import com.parknova.parknovaapigateway.auth.dto.LogoutRequest;
 import com.parknova.parknovaapigateway.auth.dto.MessageResponse;
+import com.parknova.parknovaapigateway.auth.dto.RefreshRequest;
 import com.parknova.parknovaapigateway.auth.dto.RegisterRequest;
 import com.parknova.parknovaapigateway.auth.dto.TokenResponse;
 import com.parknova.parknovaapigateway.auth.keycloak.KeycloakAdminService;
@@ -44,6 +45,10 @@ public class AuthService {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Invalid username or password");
         }
         return keycloakTokenService.login(user.get().getUsername(), request.password());
+    }
+
+    public TokenResponse refresh(RefreshRequest request) {
+        return keycloakTokenService.refresh(request.refreshToken());
     }
 
     public MessageResponse logout(LogoutRequest request) {

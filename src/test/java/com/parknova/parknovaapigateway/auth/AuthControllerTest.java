@@ -109,7 +109,7 @@ class AuthControllerTest {
 
         String body = """
                 {
-                  "email": "jdoe@example.com",
+                  "username": "jdoe",
                   "password": "SecurePass1!"
                 }
                 """;
@@ -125,11 +125,11 @@ class AuthControllerTest {
     @Test
     void login_returns401_whenCredentialsInvalid() throws Exception {
         when(authService.login(any()))
-                .thenThrow(new ApiException(HttpStatus.UNAUTHORIZED, "Invalid email or password"));
+                .thenThrow(new ApiException(HttpStatus.UNAUTHORIZED, "Invalid username or password"));
 
         String body = """
                 {
-                  "email": "jdoe@example.com",
+                  "username": "jdoe",
                   "password": "wrong"
                 }
                 """;
@@ -138,7 +138,58 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.message").value("Invalid email or password"));
+                .andExpect(jsonPath("$.message").value("Invalid username or password"));
+    }
+
+    @Test
+    void refresh_returnsNewTokens() throws Exception {
+        when(authService.refresh(any()))
+                .thenReturn(new TokenResponse("new-access", "new-refresh", 900L, 604800L, "Bearer", "openid"));
+
+        String body = """
+                {
+                  "refreshToken": "old-refresh"
+                }
+                """;
+
+        mockMvc.perform(post("/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.access_token").value("new-access"))
+                .andExpect(jsonPath("$.refresh_token").value("new-refresh"));
+    }
+
+    @Test
+    void refresh_returns401_whenTokenExpired() throws Exception {
+        when(authService.refresh(any()))
+                .thenThrow(new ApiException(HttpStatus.UNAUTHORIZED, "Session expired, please log in again"));
+
+        String body = """
+                {
+                  "refreshToken": "expired"
+                }
+                """;
+
+        mockMvc.perform(post("/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("Session expired, please log in again"));
+    }
+
+    @Test
+    void refresh_returns400_whenRefreshTokenMissing() throws Exception {
+        String body = """
+                {
+                }
+                """;
+
+        mockMvc.perform(post("/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fields", hasKey("refreshToken")));
     }
 
     @Test

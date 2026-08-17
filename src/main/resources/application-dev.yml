@@ -87,3 +87,17 @@ logging:
 
     org.springframework.security: DEBUG
 
+    org.springframework.web: DEBUG
+
+    org.springframework.web.client.RestClient: DEBUG
+
+    org.springframework.web.client.RestTemplate: DEBUG
+
+    org.apache.http.wire: DEBUG
+
+    org.keycloak: DEBUG
+
+    org.jboss.resteasy: DEBUG
+
+    org.springframework.mail: DEBUG
+

@@ -3,6 +3,7 @@ package com.parknova.parknovaapigateway.auth;
 import com.parknova.parknovaapigateway.auth.dto.LoginRequest;
 import com.parknova.parknovaapigateway.auth.dto.LogoutRequest;
 import com.parknova.parknovaapigateway.auth.dto.MessageResponse;
+import com.parknova.parknovaapigateway.auth.dto.RefreshRequest;
 import com.parknova.parknovaapigateway.auth.dto.RegisterRequest;
 import com.parknova.parknovaapigateway.auth.dto.TokenResponse;
 import jakarta.validation.Valid;
@@ -32,6 +33,11 @@ public class AuthController {
     @PostMapping("/login")
     public TokenResponse login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request);
+    }
+
+    @PostMapping("/refresh")
+    public TokenResponse refresh(@Valid @RequestBody RefreshRequest request) {
+        return authService.refresh(request);
     }
 
     @PostMapping("/logout")
