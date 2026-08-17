@@ -1,6 +1,9 @@
 spring:
   application:
     name: ${APPLICATION_NAME:parknova-api-gateway}
+  mvc:
+    # Log request params/headers/payload at DEBUG (pairs with org.springframework.web: DEBUG).
+    log-request-details: true
   cloud:
     gateway:
       mvc:
@@ -62,11 +65,11 @@ parknova:
   mail:
     enabled: ${MAIL_ENABLED:false}
     from: ${MAIL_FROM:noreply@parknova.local}
-  service-to-service-secret: ${SERVICE_TO_SERVICE_SECRET:dev-secret}
+  service-to-service-secret: ${SERVICE_TO_SERVICE_SECRET:ABC12234567$#^%&}
   org-admin-base-url: ${ORG_ADMIN_SERVICE_URI:http://localhost:8091}
 
 server:
-  port: ${APPLICATION_PORT:8080}
+  port: ${APPLICATION_PORT:8082}
   shutdown: graceful
 
 management:
@@ -84,3 +87,15 @@ logging:
     com.parknova.parknovaapigateway: DEBUG
     org.springframework.security: INFO
     org.springframework.cloud.gateway: INFO
+    # Spring Web / MVC — request/response details for diagnosing inbound provision calls.
+    org.springframework.web: DEBUG
+    # Outbound HTTP clients used for service-to-service calls (org-admin RestClient, RestTemplate).
+    org.springframework.web.client.RestClient: DEBUG
+    org.springframework.web.client.RestTemplate: DEBUG
+    # HTTP wire (Apache client used by the Keycloak admin client).
+    org.apache.http.wire: DEBUG
+    # Keycloak admin client + RESTEasy — so admin-API failures are fully diagnosable.
+    org.keycloak: DEBUG
+    org.jboss.resteasy: DEBUG
+    # Email publish path.
+    org.springframework.mail: DEBUG
