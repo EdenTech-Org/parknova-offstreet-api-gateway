@@ -31,6 +31,7 @@ public class KeycloakAdminService {
 
     public static final String ROLE_SYSTEM_ADMIN = "SYSTEM_ADMIN";
     public static final String ATTR_ORGANIZATION_ID = "organizationId";
+    public static final String ATTR_ORGANIZATION_NAME = "organizationName";
     public static final String ATTR_INVITE_TOKEN = "inviteToken";
     public static final String ATTR_INVITE_EXPIRES_AT = "inviteExpiresAt";
     public static final String ATTR_INVITE_KIND = "inviteKind";
@@ -113,7 +114,8 @@ public class KeycloakAdminService {
     /**
      * Creates a tenant system admin with no password. Invite tokens are stored in org-admin DB.
      */
-    public ProvisionResult provisionTenantAdmin(String username, String email, long organizationId) {
+    public ProvisionResult provisionTenantAdmin(
+            String username, String email, long organizationId, String organizationName) {
         String normalizedUsername = username.trim();
         String normalizedEmail = email.trim().toLowerCase();
         // Identity is username-based (email may be duplicated), so dedup on username, not email.
@@ -123,7 +125,7 @@ public class KeycloakAdminService {
             if (hasRealmRole(user.getId(), ROLE_SYSTEM_ADMIN)
                     && organizationIdEquals(user, organizationId)
                     && !hasPasswordCredential(user.getId())) {
-                ensureOrgAttributes(user.getId(), organizationId);
+                ensureOrgAttributes(user.getId(), organizationId, organizationName);
                 return new ProvisionResult(user.getId(), false);
             }
             throw new ApiException(HttpStatus.CONFLICT,
@@ -139,7 +141,7 @@ public class KeycloakAdminService {
         user.setEmailVerified(false);
         user.setRequiredActions(List.of());
         user.setCredentials(List.of());
-        user.setAttributes(orgAttributes(organizationId));
+        user.setAttributes(orgAttributes(organizationId, organizationName));
 
         UsersResource users = users();
         try (Response response = adminCall(() -> users.create(user))) {
@@ -148,7 +150,7 @@ public class KeycloakAdminService {
                 String userId = CreatedResponseUtil.getCreatedId(response);
                 assignRealmRole(userId, ROLE_SYSTEM_ADMIN);
                 // Create can drop custom attrs when User profile blocks unmanaged attributes — force-set and verify.
-                ensureOrgAttributes(userId, organizationId);
+                ensureOrgAttributes(userId, organizationId, organizationName);
                 UserRepresentation stored = findById(userId)
                         .orElseThrow(() -> new ApiException(HttpStatus.BAD_GATEWAY,
                                 "Provisioned Keycloak user not found after create"));
@@ -173,14 +175,18 @@ public class KeycloakAdminService {
         }
     }
 
-    public void ensureOrgAttributes(String userId, long organizationId) {
+    public void ensureOrgAttributes(String userId, long organizationId, String organizationName) {
         UserResource resource = users().get(userId);
         UserRepresentation user = adminCall(resource::toRepresentation);
         Map<String, List<String>> attrs = user.getAttributes() != null
                 ? new HashMap<>(user.getAttributes())
                 : new HashMap<>();
         attrs.put(ATTR_ORGANIZATION_ID, List.of(String.valueOf(organizationId)));
-        attrs.remove("organizationName");
+        if (organizationName != null && !organizationName.isBlank()) {
+            attrs.put(ATTR_ORGANIZATION_NAME, List.of(organizationName.trim()));
+        } else {
+            attrs.remove(ATTR_ORGANIZATION_NAME);
+        }
         // Clear legacy invite attrs if present from older deployments
         attrs.remove(ATTR_INVITE_TOKEN);
         attrs.remove(ATTR_INVITE_EXPIRES_AT);
@@ -310,9 +316,12 @@ public class KeycloakAdminService {
         });
     }
 
-    private Map<String, List<String>> orgAttributes(long organizationId) {
+    private Map<String, List<String>> orgAttributes(long organizationId, String organizationName) {
         Map<String, List<String>> attrs = new HashMap<>();
         attrs.put(ATTR_ORGANIZATION_ID, List.of(String.valueOf(organizationId)));
+        if (organizationName != null && !organizationName.isBlank()) {
+            attrs.put(ATTR_ORGANIZATION_NAME, List.of(organizationName.trim()));
+        }
         return attrs;
     }
 

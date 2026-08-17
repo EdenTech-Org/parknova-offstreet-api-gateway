@@ -74,7 +74,7 @@ public class PortalAuthService {
         String username = request.username().trim();
         String email = request.email().trim().toLowerCase();
         ProvisionResult result = keycloakAdminService.provisionTenantAdmin(
-                username, email, request.organizationId());
+                username, email, request.organizationId(), request.organizationName());
         String token = issueAndStoreInvite(
                 result.userId(),
                 email,
