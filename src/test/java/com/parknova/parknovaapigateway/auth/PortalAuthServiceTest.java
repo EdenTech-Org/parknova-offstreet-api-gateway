@@ -80,14 +80,14 @@ class PortalAuthServiceTest {
 
     @Test
     void provision_createsInviteInOrgAdminAndSendsEmail() {
-        when(keycloakAdminService.provisionTenantAdmin("acme-admin", "admin@acme.example", 42L))
+        when(keycloakAdminService.provisionTenantAdmin("acme-admin", "admin@acme.example", 42L, "Acme Inc"))
                 .thenReturn(new ProvisionResult("user-1", true));
         when(inviteClient.create(anyString(), eq(42L), eq("admin@acme.example"),
                 eq("user-1"), eq("SETUP"), any(Instant.class)))
                 .thenAnswer(inv -> usableInvite(inv.getArgument(0), "SETUP"));
 
         var response = portalAuthService.provision(
-                new ProvisionTenantAdminRequest(42L, "acme-admin", "Admin@Acme.Example"));
+                new ProvisionTenantAdminRequest(42L, "acme-admin", "Admin@Acme.Example", "Acme Inc"));
 
         assertThat(response.email()).isEqualTo("admin@acme.example");
         ArgumentCaptor<String> tokenCaptor = ArgumentCaptor.forClass(String.class);
